@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 214 52% 25%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 52% 96%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 214 52% 96%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 29 56% 46%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 29 56% 46%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 214 52% 25%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 214 52% 96%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 240 5.9% 90%;
+    --sidebar-ring: 29 56% 46%;
+  }
+
+  .dark {
+    --background: 0 0% 5%;
+    --foreground: 240 2% 95%;
+    --card: 0 0% 7%;
+    --card-foreground: 240 2% 95%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 240 2% 95%;
+    --primary: 214 52% 25%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 52% 15%;
+    --secondary-foreground: 240 2% 95%;
+    --muted: 214 52% 12%;
+    --muted-foreground: 214 10% 60%;
+    --accent: 29 56% 46%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 52% 15%;
+    --input: 214 52% 15%;
+    --ring: 29 56% 46%;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 240 2% 85%;
+    --sidebar-primary: 214 52% 25%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 214 52% 20%;
+    --sidebar-accent-foreground: 240 2% 95%;
+    --sidebar-border: 214 52% 10%;
+    --sidebar-ring: 29 56% 46%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-headline tracking-tight;
+  }
+}
+
+.glass-panel {
+  @apply bg-card/50 backdrop-blur-md border border-border;
+}
+
+.gradient-copper {
+  background: linear-gradient(135deg, #B87333 0%, #8B4513 100%);
+}
+
+.gradient-sapphire {
+  background: linear-gradient(135deg, #1E3A5F 0%, #0C0C0C 100%);
+}

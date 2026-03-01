@@ -1,0 +1,205 @@
+
+> deepskill-nexus@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use, trying 3001 instead.
+ ⚠ Port 3001 is in use, trying 3002 instead.
+ ⚠ Port 3002 is in use, trying 3003 instead.
+ ⚠ Port 3003 is in use, trying 3004 instead.
+   ▲ Next.js 15.0.3
+   - Local:        http://localhost:3004
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 17.5s
+ ○ Compiling / ...
+ ✓ Compiled / in 54.1s (2278 modules)
+ GET / 200 in 56720ms
+ ✓ Compiled in 2.3s (1041 modules)
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 5.8s (1252 modules)
+ GET /favicon.ico 200 in 6011ms
+ GET / 200 in 1130ms
+ GET /favicon.ico 200 in 55ms
+ ○ Compiling /agents ...
+ ✓ Compiled /agents in 41.4s (3927 modules)
+ GET /agents 200 in 41813ms
+ GET /agents 200 in 13ms
+ ○ Compiling /skills ...
+ ✓ Compiled /skills in 1396ms (3954 modules)
+ GET /skills 200 in 1565ms
+Error [GenkitError]: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (src\ai\flows\skill-generation.ts:45:25)
+    at async (webpack://next/dist/src/server/app-render/action-handler.ts:881:24)
+    at async handleAction (webpack://next/dist/src/server/app-render/action-handler.ts:617:4)
+    at async renderToHTMLOrFlightImpl (webpack://next/dist/src/server/app-render/app-render.tsx:1310:34)
+    at async doRender (node_modules\next\src\server\base-server.ts:2666:21)
+    at async responseGenerator (node_modules\next\src\server\base-server.ts:3027:21)
+    at async DevServer.renderToResponseWithComponentsImpl (node_modules\next\src\server\base-server.ts:3039:23)
+    at async DevServer.renderPageComponent (node_modules\next\src\server\base-server.ts:3597:15)
+    at async DevServer.renderToResponseImpl (node_modules\next\src\server\base-server.ts:3659:23)
+    at async DevServer.pipeImpl (node_modules\next\src\server\base-server.ts:1698:20)
+    at async NextNodeServer.handleCatchallRenderRequest (node_modules\next\src\server\next-server.ts:1034:6)
+    at async DevServer.handleRequestImpl (node_modules\next\src\server\base-server.ts:1462:8)
+    at async (node_modules\next\src\server\dev\next-dev-server.ts:514:13)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13)
+    at async DevServer.handleRequest (node_modules\next\src\server\dev\next-dev-server.ts:512:19)
+    at async invokeRender (node_modules\next\src\server\lib\router-server.ts:284:10)
+    at async handleRequest (node_modules\next\src\server\lib\router-server.ts:530:15)
+    at async requestHandlerImpl (node_modules\next\src\server\lib\router-server.ts:576:6)
+    at async Server.requestListener (node_modules\next\src\server\lib\start-server.ts:146:6)
+  43 |   for (const modelId of modelsToTry) {
+  44 |     try {
+> 45 |       const { output } = await skillGenerationPrompt(input, {
+     |                         ^
+  46 |         model: modelId as any
+  47 |       });
+  48 |       return output!; {
+  source: undefined,
+  status: 'UNKNOWN',
+  detail: undefined,
+  code: 500,
+  originalMessage: 'Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.'
+}
+Skill Synthesis failed with googleai/gemini-1.5-flash. Retrying... Error: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+Error [GenkitError]: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (src\ai\flows\skill-generation.ts:45:25)
+    at async (webpack://next/dist/src/server/app-render/action-handler.ts:881:24)
+    at async handleAction (webpack://next/dist/src/server/app-render/action-handler.ts:617:4)
+    at async renderToHTMLOrFlightImpl (webpack://next/dist/src/server/app-render/app-render.tsx:1310:34)
+    at async doRender (node_modules\next\src\server\base-server.ts:2666:21)
+    at async responseGenerator (node_modules\next\src\server\base-server.ts:3027:21)
+    at async DevServer.renderToResponseWithComponentsImpl (node_modules\next\src\server\base-server.ts:3039:23)
+    at async DevServer.renderPageComponent (node_modules\next\src\server\base-server.ts:3597:15)
+    at async DevServer.renderToResponseImpl (node_modules\next\src\server\base-server.ts:3659:23)
+    at async DevServer.pipeImpl (node_modules\next\src\server\base-server.ts:1698:20)
+    at async NextNodeServer.handleCatchallRenderRequest (node_modules\next\src\server\next-server.ts:1034:6)
+    at async DevServer.handleRequestImpl (node_modules\next\src\server\base-server.ts:1462:8)
+    at async (node_modules\next\src\server\dev\next-dev-server.ts:514:13)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13)
+    at async DevServer.handleRequest (node_modules\next\src\server\dev\next-dev-server.ts:512:19)
+    at async invokeRender (node_modules\next\src\server\lib\router-server.ts:284:10)
+    at async handleRequest (node_modules\next\src\server\lib\router-server.ts:530:15)
+    at async requestHandlerImpl (node_modules\next\src\server\lib\router-server.ts:576:6)
+    at async Server.requestListener (node_modules\next\src\server\lib\start-server.ts:146:6)
+  43 |   for (const modelId of modelsToTry) {
+  44 |     try {
+> 45 |       const { output } = await skillGenerationPrompt(input, {
+     |                         ^
+  46 |         model: modelId as any
+  47 |       });
+  48 |       return output!; {
+  source: undefined,
+  status: 'UNKNOWN',
+  detail: undefined,
+  code: 500,
+  originalMessage: 'Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.'
+}
+Skill Synthesis failed with googleai/gemini-1.5-flash-latest. Retrying... Error: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+ POST /skills 500 in 5601ms
+ ⨯ node_modules\@genkit-ai\google-genai\lib\googleai\client.js (231:1) @ makeRequest
+ ⨯ GenkitError: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (./src/ai/flows/skill-generation.ts:57:32)
+digest: "347394155"
+  229 |           break;
+  230 |       }
+> 231 |       throw new import_genkit.GenkitError({
+      | ^
+  232 |         status,
+  233 |         message: `Error fetching from ${url}: [${response.status} ${response.statusText}] ${errorMessage}`
+  234 |       });
+   Reload env: .env.local
+ ✓ Compiled in 5.9s (3939 modules)
+ GET /skills 200 in 1072ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 10.2s (3956 modules)
+Error [GenkitError]: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (src\ai\flows\skill-generation.ts:45:25)
+    at async (webpack://next/dist/src/server/app-render/action-handler.ts:881:24)
+    at async handleAction (webpack://next/dist/src/server/app-render/action-handler.ts:617:4)
+    at async renderToHTMLOrFlightImpl (webpack://next/dist/src/server/app-render/app-render.tsx:1310:34)
+    at async doRender (node_modules\next\src\server\base-server.ts:2666:21)
+    at async responseGenerator (node_modules\next\src\server\base-server.ts:3027:21)
+    at async DevServer.renderToResponseWithComponentsImpl (node_modules\next\src\server\base-server.ts:3039:23)
+    at async DevServer.renderPageComponent (node_modules\next\src\server\base-server.ts:3597:15)
+    at async DevServer.renderToResponseImpl (node_modules\next\src\server\base-server.ts:3659:23)
+    at async DevServer.pipeImpl (node_modules\next\src\server\base-server.ts:1698:20)
+    at async NextNodeServer.handleCatchallRenderRequest (node_modules\next\src\server\next-server.ts:1034:6)
+    at async DevServer.handleRequestImpl (node_modules\next\src\server\base-server.ts:1462:8)
+    at async (node_modules\next\src\server\dev\next-dev-server.ts:514:13)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13)
+    at async DevServer.handleRequest (node_modules\next\src\server\dev\next-dev-server.ts:512:19)
+    at async invokeRender (node_modules\next\src\server\lib\router-server.ts:284:10)
+    at async handleRequest (node_modules\next\src\server\lib\router-server.ts:530:15)
+    at async requestHandlerImpl (node_modules\next\src\server\lib\router-server.ts:576:6)
+    at async Server.requestListener (node_modules\next\src\server\lib\start-server.ts:146:6)
+  43 |   for (const modelId of modelsToTry) {
+  44 |     try {
+> 45 |       const { output } = await skillGenerationPrompt(input, {
+     |                         ^
+  46 |         model: modelId as any
+  47 |       });
+  48 |       return output!; {
+  source: undefined,
+  status: 'UNKNOWN',
+  detail: undefined,
+  code: 500,
+  originalMessage: 'Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.'
+}
+Skill Synthesis failed with googleai/gemini-1.5-flash. Retrying... Error: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent: [404 Not Found] models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+Error [GenkitError]: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (src\ai\flows\skill-generation.ts:45:25)
+    at async (webpack://next/dist/src/server/app-render/action-handler.ts:881:24)
+    at async handleAction (webpack://next/dist/src/server/app-render/action-handler.ts:617:4)
+    at async renderToHTMLOrFlightImpl (webpack://next/dist/src/server/app-render/app-render.tsx:1310:34)
+    at async doRender (node_modules\next\src\server\base-server.ts:2666:21)
+    at async responseGenerator (node_modules\next\src\server\base-server.ts:3027:21)
+    at async DevServer.renderToResponseWithComponentsImpl (node_modules\next\src\server\base-server.ts:3039:23)
+    at async DevServer.renderPageComponent (node_modules\next\src\server\base-server.ts:3597:15)
+    at async DevServer.renderToResponseImpl (node_modules\next\src\server\base-server.ts:3659:23)
+    at async DevServer.pipeImpl (node_modules\next\src\server\base-server.ts:1698:20)
+    at async NextNodeServer.handleCatchallRenderRequest (node_modules\next\src\server\next-server.ts:1034:6)
+    at async DevServer.handleRequestImpl (node_modules\next\src\server\base-server.ts:1462:8)
+    at async (node_modules\next\src\server\dev\next-dev-server.ts:514:13)
+    at async Span.traceAsyncFn (node_modules\next\src\trace\trace.ts:143:13)
+    at async DevServer.handleRequest (node_modules\next\src\server\dev\next-dev-server.ts:512:19)
+    at async invokeRender (node_modules\next\src\server\lib\router-server.ts:284:10)
+    at async handleRequest (node_modules\next\src\server\lib\router-server.ts:530:15)
+    at async requestHandlerImpl (node_modules\next\src\server\lib\router-server.ts:576:6)
+    at async Server.requestListener (node_modules\next\src\server\lib\start-server.ts:146:6)
+  43 |   for (const modelId of modelsToTry) {
+  44 |     try {
+> 45 |       const { output } = await skillGenerationPrompt(input, {
+     |                         ^
+  46 |         model: modelId as any
+  47 |       });
+  48 |       return output!; {
+  source: undefined,
+  status: 'UNKNOWN',
+  detail: undefined,
+  code: 500,
+  originalMessage: 'Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.'
+}
+Skill Synthesis failed with googleai/gemini-1.5-flash-latest. Retrying... Error: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+ ⨯ node_modules\@genkit-ai\google-genai\lib\googleai\client.js (231:1) @ makeRequest
+ ⨯ GenkitError: UNKNOWN: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent: [404 Not Found] models/gemini-1.5-flash-latest is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.
+    at async generateSkill (./src/ai/flows/skill-generation.ts:57:32)
+digest: "347394155"
+  229 |           break;
+  230 |       }
+> 231 |       throw new import_genkit.GenkitError({
+      | ^
+  232 |         status,
+  233 |         message: `Error fetching from ${url}: [${response.status} ${response.statusText}] ${errorMessage}`
+  234 |       });
+ POST /skills 500 in 3454ms
+ POST /skills 404 in 14895ms
+ GET /skills 200 in 58ms
+ GET /_next/static/css/app/layout.css?v=1772272120595 404 in 760ms
+ ✓ Compiled in 28.8s (3953 modules)
+ ✓ Compiled in 12.8s (3939 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Restoring pack from E:\Work\NexusApp\.next\cache\webpack\client-development.pack.gz failed: TypeError: Cannot read properties of undefined (reading 'hasStartTime')
+ ✓ Compiled in 102.6s (3939 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: EPERM: operation not permitted, rename 'E:\Work\NexusApp\.next\cache\webpack\server-development\13.pack.gz_' -> 'E:\Work\NexusApp\.next\cache\webpack\server-development\13.pack.gz'
+ ✓ Compiled in 9s (2863 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'E:\Work\NexusApp\.next\cache\webpack\server-development\0.pack.gz_' -> 'E:\Work\NexusApp\.next\cache\webpack\server-development\0.pack.gz'

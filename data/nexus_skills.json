@@ -1,0 +1,146 @@
+[
+  {
+    "id": "bj45yw",
+    "name": "Bio-Clinical Schema Harmonization",
+    "description": "Executes advanced mapping protocols to align heterogeneous clinical datasets with standardized medical ontologies, ensuring semantic consistency and data integrity for longitudinal research.",
+    "category": "Analysis",
+    "inputs": [
+      "Source_Data_Metadata",
+      "Standard_Ontology_Framework",
+      "Alignment_Confidence_Threshold",
+      "Validation_Protocol_Module"
+    ],
+    "enabled": true,
+    "isCustom": true,
+    "userId": "local-dev-user-123"
+  },
+  {
+    "id": "stock-price",
+    "name": "Market Oracle",
+    "description": "Real-time equity pricing and historical volatility analysis.",
+    "category": "Finance",
+    "inputs": [
+      "ticker"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "weather",
+    "name": "Atmospheric Analyst",
+    "description": "Hyper-local meteorological forecasting and environmental alerts.",
+    "category": "Utility",
+    "inputs": [
+      "location"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "web-search",
+    "name": "Neural Search",
+    "description": "Deep-web crawling and semantic index lookup.",
+    "category": "Analysis",
+    "inputs": [
+      "query"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "agent-browser",
+    "name": "Agent Browser",
+    "description": "Autonomous web navigation, interaction, and data extraction directly via browser instances.",
+    "category": "Utility",
+    "inputs": [
+      "url",
+      "instructions"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "code-executor",
+    "name": "Script Sandbox",
+    "description": "Isolated environment for computational logic execution.",
+    "category": "Logic",
+    "inputs": [
+      "code"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "vercel-react-best-practices",
+    "name": "Vercel React Best Practices",
+    "description": "Expert knowledge base on optimal React architectures and Vercel Next.js deployment strategies.",
+    "category": "Intelligence",
+    "inputs": [
+      "code_snippet",
+      "query"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "web-design-guidelines",
+    "name": "Web Design Guidelines",
+    "description": "Analyzes design patterns and provides UI/UX layout recommendations and CSS architecture.",
+    "category": "Creative",
+    "inputs": [
+      "component_description"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "webapp-testing",
+    "name": "Web App Testing",
+    "description": "Generates comprehensive E2E playwright testing suites and unit test coverage.",
+    "category": "Logic",
+    "inputs": [
+      "requirements",
+      "component_code"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "brainstorming",
+    "name": "Deep Brainstorming",
+    "description": "Unconstrained multidimensional idea generation and lateral thinking expansions.",
+    "category": "Creative",
+    "inputs": [
+      "topic",
+      "constraints"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "azure-ai",
+    "name": "Azure AI",
+    "description": "Integrates with Azure OpenAI and Cognitive Services for enterprise-grade intelligence.",
+    "category": "Intelligence",
+    "inputs": [
+      "prompt",
+      "service_type"
+    ],
+    "enabled": false,
+    "userId": "local-desktop-operator"
+  },
+  {
+    "id": "clinical-auditor",
+    "name": "Clinical Validation & Audit Protocol",
+    "description": "Executes systematic verification of medical trial data against established regulatory benchmarks to ensure high-fidelity compliance and integrity.",
+    "category": "Analysis",
+    "inputs": [
+      "trial_dataset_uri",
+      "regulatory_compliance_schema",
+      "anomaly_sensitivity_coefficient"
+    ],
+    "enabled": true,
+    "isCustom": true,
+    "userId": "local-desktop-operator"
+  }
+]

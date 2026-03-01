@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  nexusapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deepskill-nexus
+    ports:
+      - "3000:3000"
+    restart: always
+    environment:
+      - NODE_ENV=production
