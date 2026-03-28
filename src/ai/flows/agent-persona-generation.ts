@@ -1,60 +1,45 @@
 'use server';
 /**
- * @fileOverview This file defines a Genkit flow for generating detailed AI agent personas.
+ * @fileOverview Generates a detailed AI agent persona using LangChain.
+ * Migrated from Genkit → LangChain so all configured providers (OpenAI, Anthropic,
+ * Groq, Mistral, Google) work correctly via getLangChainModel routing.
  */
 
-import { getGenkitInstance } from '../genkit';
-import { z } from 'genkit';
-
-const AgentPersonaGenerationInputSchema = z.object({
-  roleDescription: z.string().describe("A high-level description of the AI agent's role and purpose."),
-  preferredModel: z.string().optional().describe('The preferred model identifier for this generation.'),
-});
-
-type AgentPersonaGenerationInput = z.infer<typeof AgentPersonaGenerationInputSchema>;
+import { z } from 'zod';
+import { getLangChainModel } from '../langchain';
 
 const AgentPersonaGenerationOutputSchema = z.object({
   persona: z.string().describe('Detailed personality, communication style, and background.'),
-  objectives: z.array(z.string()).describe('List of strategic objectives.'),
-  operationalParameters: z.record(z.string(), z.string()).describe('Initial behavioral settings.'),
+  objectives: z.array(z.string()).describe('List of 3-5 strategic objectives.'),
+  operationalParameters: z
+    .record(z.string(), z.string())
+    .describe('Initial behavioral settings as key-value pairs.'),
 });
 
 type AgentPersonaGenerationOutput = z.infer<typeof AgentPersonaGenerationOutputSchema>;
 
-export async function agentPersonaGeneration(input: AgentPersonaGenerationInput): Promise<AgentPersonaGenerationOutput> {
-  const ai = await getGenkitInstance();
+export async function agentPersonaGeneration(input: {
+  roleDescription: string;
+  preferredModel?: string;
+}): Promise<AgentPersonaGenerationOutput> {
+  const model = await getLangChainModel(input.preferredModel);
+  const structured = model.withStructuredOutput(AgentPersonaGenerationOutputSchema);
 
-  const agentPersonaPrompt = ai.definePrompt({
-    name: 'agentPersonaPrompt',
-    input: { schema: AgentPersonaGenerationInputSchema },
-    output: { schema: AgentPersonaGenerationOutputSchema },
-    prompt: `You are an expert AI agent designer for DeepSkills. Develop a comprehensive persona and strategic parameters.
-  
-  Role Description: {{{roleDescription}}}
-  
-  Generate a structured JSON response matching the required schema.`,
-  });
+  const result = await structured.invoke([
+    {
+      role: 'system',
+      content: `You are an expert AI agent designer for DeepSkills. You create comprehensive, professional agent personas with strategic objectives and behavioral parameters. Always respond with valid JSON matching the requested schema.`,
+    },
+    {
+      role: 'user',
+      content: `Role Description: "${input.roleDescription}"
 
-  const modelsToTry = [
-    input.preferredModel,
-    'googleai/gemini-flash-latest',
-    'googleai/gemini-2.5-flash',
-    'googleai/gemini-2.0-flash'
-  ].filter(Boolean) as string[];
+Generate a structured agent persona with:
+- persona: A detailed paragraph describing personality, communication style, expertise, and background (3-5 sentences)
+- objectives: 3-5 strategic mission objectives as an array of strings
+- operationalParameters: A flat object of behavioral settings (e.g. { "response_style": "analytical", "language": "technical" })`,
+    },
+  ]);
 
-  let lastError = null;
-
-  for (const modelId of modelsToTry) {
-    try {
-      const { output } = await agentPersonaPrompt(input, {
-        model: modelId as any
-      });
-      return output as any;
-    } catch (error: any) {
-      lastError = error;
-      console.warn(`Persona Synthesis failed with ${modelId}, trying next model. Error: ${error.message}`);
-    }
-  }
-
-  throw lastError || new Error('Persona Synthesis failed.');
+  return result;
 }
