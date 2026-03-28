@@ -5,7 +5,7 @@ import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveCha
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download } from "lucide-react";
+import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download, Copy, Check, FileDown } from "lucide-react";
 import { agentConversationToolExecution } from "@/ai/flows/agent-conversation-tool-execution";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
@@ -27,6 +27,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
   const [input, setInput] = useState("");
   const [isIntelOpen, setIsIntelOpen] = useState(false);
   const [attachedFile, setAttachedFile] = useState<{ name: string, content: string } | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -85,6 +86,28 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const copyMessage = (content: string, idx: number) => {
+    navigator.clipboard.writeText(content);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
+  };
+
+  const exportConversation = () => {
+    const md = messages.map(m =>
+      `**${m.role === 'user' ? 'You' : agent.name}**\n\n${m.content}`
+    ).join('\n\n---\n\n');
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agent.name.replace(/\s+/g, '_')}_chat.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: "Conversation saved as markdown." });
   };
 
   const handleSend = async () => {
@@ -146,9 +169,9 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
   };
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
+    <div className="flex h-full overflow-hidden bg-background">
       <div className="flex-1 flex flex-col min-w-0 border-r border-border">
-        <header className="flex flex-row items-center justify-between pl-14 pr-4 py-3 md:px-6 md:py-4 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-10 gap-2">
+        <header className="flex flex-row items-center justify-between px-4 py-3 md:px-6 md:py-4 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-10 gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="size-8 rounded-lg gradient-sapphire flex items-center justify-center font-bold text-accent shadow-lg shadow-accent/10 shrink-0">
               {agent.name.charAt(0)}
@@ -159,6 +182,16 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={exportConversation}
+              className="text-xs font-bold uppercase tracking-widest border border-transparent h-8 px-2 md:px-3"
+              title="Export conversation"
+            >
+              <FileDown className="size-4" />
+              <span className="ml-1.5 hidden sm:inline">Export</span>
+            </Button>
             <Button
               variant={isIntelOpen ? "secondary" : "ghost"}
               size="sm"
@@ -190,10 +223,17 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
                   {msg.role === 'user' ? <User className="size-3 sm:size-4 text-white" /> : <Bot className="size-3 sm:size-4 text-accent" />}
                 </div>
                 <div className={`space-y-2 sm:space-y-4 max-w-[88%] sm:max-w-[85%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                  <div className={`p-4 rounded-2xl border ${msg.role === 'user'
+                  <div className={`relative group/msg p-4 rounded-2xl border ${msg.role === 'user'
                     ? 'bg-accent/10 border-accent/20 text-foreground'
                     : 'glass-panel text-foreground/90'
                     }`}>
+                    <button
+                      onClick={() => copyMessage(msg.content, i)}
+                      className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover/msg:opacity-100 transition-opacity bg-background/60 hover:bg-background border border-border/50"
+                      title="Copy message"
+                    >
+                      {copiedIdx === i ? <Check className="size-3 text-green-500" /> : <Copy className="size-3 text-muted-foreground" />}
+                    </button>
                     {msg.role === 'user' ? (
                       msg.content
                     ) : (

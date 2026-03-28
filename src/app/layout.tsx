@@ -30,11 +30,12 @@ export default function RootLayout({
       <body className="font-body antialiased bg-background text-foreground">
         <Providers>
           <AppSidebar />
-          <SidebarInset className="relative">
-            <div className="absolute top-4 left-4 z-50 md:hidden">
+          <SidebarInset className="flex flex-col h-[100dvh] overflow-hidden">
+            <div className="h-14 shrink-0 flex items-center gap-3 px-4 border-b border-border bg-sidebar/30 backdrop-blur-md md:hidden sticky top-0 z-40">
               <SidebarTrigger className="bg-sidebar shadow-lg border border-border" />
+              <span className="font-bold text-sm tracking-tight">DeepSkills</span>
             </div>
-            <main className="flex-1 overflow-auto bg-background">
+            <main className="flex-1 overflow-auto bg-background min-h-0">
               {children}
             </main>
           </SidebarInset>

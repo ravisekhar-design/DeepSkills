@@ -251,7 +251,7 @@ export default function SkillsPage() {
         </Dialog>
       </header>
 
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-4 border-b border-border pb-6 overflow-x-auto no-scrollbar">
+      <div className="flex flex-col gap-4 border-b border-border pb-6">
         <div className="relative w-full md:w-80 shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
@@ -261,7 +261,7 @@ export default function SkillsPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {categories.map((cat) => (
             <Button
               key={cat}
@@ -276,7 +276,7 @@ export default function SkillsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredSkills.map((skill) => {
           const Icon = CATEGORY_ICONS[skill.category] || Zap;
           return (
