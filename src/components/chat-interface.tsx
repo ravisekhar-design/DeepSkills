@@ -5,7 +5,7 @@ import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveCha
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Zap, Terminal, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download } from "lucide-react";
+import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download } from "lucide-react";
 import { agentConversationToolExecution } from "@/ai/flows/agent-conversation-tool-execution";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
@@ -146,33 +146,32 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <div className="flex-1 flex flex-col min-w-0 border-r border-border">
-        <header className="flex flex-col md:flex-row items-start md:items-center justify-between pl-14 pr-6 py-6 md:px-6 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm gap-4 sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <div className="size-8 rounded-lg gradient-sapphire flex items-center justify-center font-bold text-accent shadow-lg shadow-accent/10">
+        <header className="flex flex-row items-center justify-between pl-14 pr-4 py-3 md:px-6 md:py-4 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-10 gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="size-8 rounded-lg gradient-sapphire flex items-center justify-center font-bold text-accent shadow-lg shadow-accent/10 shrink-0">
               {agent.name.charAt(0)}
             </div>
-            <div>
-              <h2 className="font-bold tracking-tight">{agent.name}</h2>
-              <p className="text-[10px] text-green-500 uppercase tracking-widest font-bold">Secure Link Active</p>
+            <div className="min-w-0">
+              <h2 className="font-bold tracking-tight truncate text-sm md:text-base">{agent.name}</h2>
+              <p className="text-[10px] text-green-500 uppercase tracking-widest font-bold hidden sm:block">Secure Link Active</p>
             </div>
           </div>
-          <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex items-center gap-1 shrink-0">
             <Button
               variant={isIntelOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setIsIntelOpen(!isIntelOpen)}
-              className="text-xs font-bold uppercase tracking-widest border border-transparent data-[state=open]:border-accent/30 hidden lg:flex mr-4"
+              className="text-xs font-bold uppercase tracking-widest border border-transparent h-8 px-2 md:px-3"
             >
-              <BrainCircuit className="size-4 mr-2" />
-              Toggle Intel
+              <BrainCircuit className="size-4" />
+              <span className="ml-1.5 hidden sm:inline">Intel</span>
             </Button>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="text-muted-foreground"><Terminal className="size-4" /></Button>
-              <div className="h-4 w-px bg-border mx-2" />
+            <div className="hidden md:flex items-center gap-2 ml-1">
+              <div className="h-4 w-px bg-border" />
               <div className="flex -space-x-2">
-                {agent.skills?.map((sId, i) => (
+                {agent.skills?.slice(0, 5).map((sId, i) => (
                   <div key={i} title={sId} className="size-6 rounded-full border border-background bg-accent/20 flex items-center justify-center">
                     <Zap className={`size-3 ${i === 0 ? 'text-accent fill-accent' : 'text-accent/60'}`} />
                   </div>
@@ -182,15 +181,15 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
           </div>
         </header>
 
-        <ScrollArea className="flex-1 p-6 bg-[#080808]">
-          <div className="max-w-3xl mx-auto space-y-8">
+        <ScrollArea className="flex-1 p-3 sm:p-6 bg-[#080808]">
+          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-8">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                <div className={`size-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-accent' : 'gradient-sapphire'
+              <div key={i} className={`flex gap-2 sm:gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-accent' : 'gradient-sapphire'
                   }`}>
-                  {msg.role === 'user' ? <User className="size-4 text-white" /> : <Bot className="size-4 text-accent" />}
+                  {msg.role === 'user' ? <User className="size-3 sm:size-4 text-white" /> : <Bot className="size-3 sm:size-4 text-accent" />}
                 </div>
-                <div className={`space-y-4 max-w-[85%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                <div className={`space-y-2 sm:space-y-4 max-w-[88%] sm:max-w-[85%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                   <div className={`p-4 rounded-2xl border ${msg.role === 'user'
                     ? 'bg-accent/10 border-accent/20 text-foreground'
                     : 'glass-panel text-foreground/90'
@@ -308,12 +307,12 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
           </div>
         </ScrollArea>
 
-        <div className="p-6 bg-sidebar/30 backdrop-blur-md border-t border-border flex flex-col gap-3">
+        <div className="p-3 sm:p-6 bg-sidebar/30 backdrop-blur-md border-t border-border flex flex-col gap-2 sm:gap-3 pb-[env(safe-area-inset-bottom,12px)] sm:pb-6">
           {attachedFile && (
             <div className="max-w-3xl mx-auto w-full">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-xs text-accent">
                 <Paperclip className="size-3" />
-                <span className="font-medium truncate max-w-[200px]">{attachedFile.name}</span>
+                <span className="font-medium truncate max-w-[160px] sm:max-w-[200px]">{attachedFile.name}</span>
                 <button
                   onClick={() => setAttachedFile(null)}
                   className="ml-1 hover:bg-black/20 rounded-full p-0.5"
@@ -323,7 +322,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
               </div>
             </div>
           )}
-          <div className="max-w-3xl mx-auto w-full flex flex-col md:flex-row gap-3">
+          <div className="max-w-3xl mx-auto w-full flex flex-row gap-2 sm:gap-3">
             <input
               type="file"
               ref={fileInputRef}
@@ -331,49 +330,47 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
               onChange={handleFileChange}
               accept=".txt,.csv,.json,.md,.js,.ts,.html,.css"
             />
-            <div className="relative flex-1 order-first md:order-none">
+            <div className="relative flex-1">
               <Input
-                placeholder="Command agent or attach data..."
-                className="h-12 bg-secondary/50 border-border pr-12 focus:ring-accent"
+                placeholder="Message agent..."
+                className="h-11 sm:h-12 bg-secondary/50 border-border pr-10 focus:ring-accent text-sm"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
-                <Button variant="ghost" size="icon" className="size-8 rounded-full text-muted-foreground hover:text-accent">
-                  <Sparkles className="size-4" />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                <Button variant="ghost" size="icon" className="size-7 rounded-full text-muted-foreground hover:text-accent">
+                  <Sparkles className="size-3.5" />
                 </Button>
               </div>
             </div>
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-12 w-12 shrink-0 bg-secondary/50 border-border hover:border-accent/40"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading}
-              >
-                <Paperclip className="size-5 text-muted-foreground" />
-              </Button>
-              <Button
-                className="h-12 flex-1 md:w-12 md:flex-none gradient-copper shadow-lg shadow-accent/20 shrink-0"
-                onClick={handleSend}
-                disabled={isLoading || (!input.trim() && !attachedFile)}
-              >
-                <div className="flex items-center justify-center gap-2">
-                  <span className="md:hidden font-bold">Send Message</span>
-                  <Send className="size-5" />
-                </div>
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 bg-secondary/50 border-border hover:border-accent/40"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+            >
+              <Paperclip className="size-4 sm:size-5 text-muted-foreground" />
+            </Button>
+            <Button
+              className="h-11 w-11 sm:h-12 sm:w-12 gradient-copper shadow-lg shadow-accent/20 shrink-0"
+              onClick={handleSend}
+              disabled={isLoading || (!input.trim() && !attachedFile)}
+            >
+              <Send className="size-4 sm:size-5" />
+            </Button>
           </div>
         </div>
       </div>
 
       {isIntelOpen && (
-        <aside className="w-80 hidden lg:flex flex-col bg-sidebar/50 backdrop-blur-md border-l border-border animate-in slide-in-from-right-8 duration-300">
-          <header className="h-16 flex items-center px-6 border-b border-border">
+        <aside className="fixed inset-0 z-50 flex flex-col bg-sidebar/95 backdrop-blur-md lg:relative lg:inset-auto lg:z-auto lg:w-80 lg:bg-sidebar/50 border-l border-border animate-in slide-in-from-right-8 duration-300">
+          <header className="h-14 lg:h-16 flex items-center justify-between px-6 border-b border-border">
             <h3 className="font-bold tracking-tight text-sm uppercase tracking-widest text-muted-foreground">Contextual Intel</h3>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsIntelOpen(false)}>
+              <X className="size-4" />
+            </Button>
           </header>
           <ScrollArea className="flex-1 p-6">
             <div className="space-y-8">

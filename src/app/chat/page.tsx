@@ -20,11 +20,11 @@ function ChatPageContent() {
 
   if (!user) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-[100dvh] flex items-center justify-center p-6">
         <div className="text-center">
-          <Users className="size-16 mx-auto mb-6 text-muted-foreground opacity-20" />
-          <h2 className="text-2xl font-bold mb-2">Sign In Required</h2>
-          <p className="text-muted-foreground">Sign in to chat with your agents.</p>
+          <Users className="size-12 sm:size-16 mx-auto mb-6 text-muted-foreground opacity-20" />
+          <h2 className="text-xl sm:text-2xl font-bold mb-2">Sign In Required</h2>
+          <p className="text-muted-foreground text-sm">Sign in to chat with your agents.</p>
         </div>
       </div>
     );
@@ -33,7 +33,7 @@ function ChatPageContent() {
   if (selectedAgentId) {
     if (loading) {
       return (
-        <div className="h-screen flex items-center justify-center">
+        <div className="h-[100dvh] flex items-center justify-center">
           <Loader2 className="animate-spin size-8 text-accent" />
         </div>
       );
@@ -45,19 +45,19 @@ function ChatPageContent() {
   }
 
   return (
-    <div className="h-screen flex items-center justify-center p-8">
-      <div className="max-w-4xl w-full space-y-8 text-center">
+    <div className="min-h-[100dvh] flex items-center justify-center p-4 sm:p-8">
+      <div className="max-w-4xl w-full space-y-6 sm:space-y-8 text-center">
         <div className="space-y-2">
-          <div className="size-16 rounded-2xl gradient-copper mx-auto flex items-center justify-center shadow-xl shadow-accent/20 mb-6">
-            <MessageSquare className="size-8 text-white" />
+          <div className="size-14 sm:size-16 rounded-2xl gradient-copper mx-auto flex items-center justify-center shadow-xl shadow-accent/20 mb-4 sm:mb-6">
+            <MessageSquare className="size-7 sm:size-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">Chat with an Agent</h1>
-          <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+          <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">Chat with an Agent</h1>
+          <p className="text-muted-foreground text-sm sm:text-lg max-w-xl mx-auto">
             Select an agent to start a conversation and execute tasks.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pt-4 sm:pt-8">
           {loading ? (
             <div className="col-span-full py-12 flex justify-center">
               <Loader2 className="animate-spin size-8 text-accent" />
