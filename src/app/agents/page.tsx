@@ -6,7 +6,7 @@ import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings, D
 import { generateAgentCode, generateSkillCode, generateSkillManifest } from "@/lib/code-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database, Code2, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database, Code2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CodeEditor } from "@/components/ui/code-editor";
 import { useUser } from "@/hooks/use-user";
 import { useCollection } from "@/hooks/use-collection";
 import { useDoc } from "@/hooks/use-doc";
@@ -46,7 +47,6 @@ export default function AgentsPage() {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [viewCodeAgent, setViewCodeAgent] = useState<Agent | null>(null);
   const [codeTab, setCodeTab] = useState<'agent' | string>('agent');
-  const [codeCopied, setCodeCopied] = useState(false);
 
   const [roleDesc, setRoleDesc] = useState("");
   const [name, setName] = useState("");
@@ -162,10 +162,12 @@ export default function AgentsPage() {
     setSelectedDatabases([]);
   };
 
-  const handleCopyCode = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
+  const handleSaveAgentCode = (newCode: string) => {
+    if (!viewCodeAgent) return;
+    const updated = { ...viewCodeAgent, code: newCode };
+    saveAgent(updated);
+    setViewCodeAgent(updated);
+    toast({ title: 'Code Saved', description: `${viewCodeAgent.name} agent code updated.` });
   };
 
   if (authLoading) {
@@ -466,67 +468,75 @@ export default function AgentsPage() {
         )}
       </div>
 
-      {/* ── Code Viewer Dialog ── */}
+      {/* Code Viewer / Editor Dialog */}
       {viewCodeAgent && (() => {
-        const agentSkills = (viewCodeAgent.skills ?? []).map(id => availableSkills.find(s => s.id === id)).filter(Boolean) as Skill[];
+        const agentSkills = (viewCodeAgent.skills ?? [])
+          .map(id => availableSkills.find(s => s.id === id))
+          .filter(Boolean) as Skill[];
+
         const tabs = [
-          { key: 'agent', label: 'Agent Code' },
-          ...agentSkills.map(s => ({ key: s.id, label: s.name })),
+          { key: 'agent', label: 'agent.ts' },
+          ...agentSkills.map(s => ({ key: s.id, label: `skills/${s.name.toLowerCase().replace(/\s+/g, '_')}.ts` })),
         ];
-        const activeCode = codeTab === 'agent'
-          ? generateAgentCode(viewCodeAgent, availableSkills)
-          : (() => {
-              const skill = agentSkills.find(s => s.id === codeTab);
-              return skill ? generateSkillCode(skill) : '';
-            })();
+
+        const getCode = (tab: string) => {
+          if (tab === 'agent') return viewCodeAgent.code || generateAgentCode(viewCodeAgent, availableSkills);
+          const skill = agentSkills.find(s => s.id === tab);
+          return skill ? generateSkillCode(skill) : '';
+        };
+
+        const activeTab = tabs.find(t => t.key === codeTab) ?? tabs[0];
 
         return (
           <Dialog open={!!viewCodeAgent} onOpenChange={(open) => { if (!open) setViewCodeAgent(null); }}>
-            <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 overflow-hidden border-accent/20 h-[90vh] flex flex-col">
-              <DialogHeader className="p-4 pb-0 shrink-0">
-                <DialogTitle className="text-lg flex items-center gap-2">
-                  <Code2 className="size-5 text-accent" />
-                  {viewCodeAgent.name} — Source Code
+            <DialogContent className="w-[95vw] max-w-5xl glass-panel p-0 overflow-hidden border-accent/20 h-[90vh] flex flex-col">
+
+              {/* Dialog header */}
+              <DialogHeader className="px-4 pt-4 pb-0 shrink-0">
+                <DialogTitle className="text-base flex items-center gap-2 font-mono">
+                  <Code2 className="size-4 text-accent" />
+                  <span className="text-accent">{viewCodeAgent.name}</span>
+                  <span className="text-muted-foreground font-normal">/ source</span>
                 </DialogTitle>
               </DialogHeader>
 
-              {/* Tabs */}
-              <div className="flex gap-1 px-4 pt-3 border-b border-border overflow-x-auto shrink-0">
+              {/* File tabs — GitHub-style */}
+              <div className="flex gap-0 px-4 pt-3 border-b border-[#30363d] overflow-x-auto shrink-0 bg-[#0d1117]">
                 {tabs.map(t => (
                   <button
                     key={t.key}
                     onClick={() => setCodeTab(t.key)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-t-lg whitespace-nowrap transition-colors ${codeTab === t.key ? 'bg-accent/20 text-accent border-b-2 border-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`px-3 py-2 text-[11px] font-mono whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                      codeTab === t.key
+                        ? 'border-[#f78166] text-[#e6edf3] bg-[#0d1117]'
+                        : 'border-transparent text-[#8b949e] hover:text-[#c9d1d9]'
+                    }`}
                   >
                     {t.label}
                   </button>
                 ))}
               </div>
 
-              {/* Code area */}
-              <div className="flex-1 overflow-hidden relative">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute top-3 right-3 z-10 h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border"
-                  onClick={() => handleCopyCode(activeCode)}
-                >
-                  {codeCopied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
-                  {codeCopied ? 'Copied' : 'Copy'}
-                </Button>
-                <ScrollArea className="h-full">
-                  <pre className="p-4 pt-10 text-[12px] leading-relaxed font-mono text-foreground/90 whitespace-pre overflow-x-auto">
-                    <code>{activeCode}</code>
-                  </pre>
-                </ScrollArea>
+              {/* Code editor — fills remaining height */}
+              <div className="flex-1 min-h-0 p-0">
+                <CodeEditor
+                  key={codeTab}
+                  code={getCode(codeTab)}
+                  filename={activeTab.label}
+                  language="typescript"
+                  editable={codeTab === 'agent'}
+                  onSave={handleSaveAgentCode}
+                  className="h-full rounded-none border-0"
+                />
               </div>
 
-              <div className="px-4 py-3 border-t border-border bg-sidebar/40 flex justify-between items-center shrink-0">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
-                  {codeTab === 'agent' ? 'LangGraph ReAct Agent · TypeScript' : 'LangChain Tool · TypeScript'}
-                </p>
-                <Button variant="ghost" size="sm" onClick={() => setViewCodeAgent(null)} className="text-xs">Close</Button>
+              {/* Close row */}
+              <div className="flex justify-end px-4 py-2.5 border-t border-[#30363d] bg-[#161b22] shrink-0">
+                <Button variant="ghost" size="sm" onClick={() => setViewCodeAgent(null)} className="text-xs text-[#8b949e] hover:text-[#c9d1d9]">
+                  Close
+                </Button>
               </div>
+
             </DialogContent>
           </Dialog>
         );

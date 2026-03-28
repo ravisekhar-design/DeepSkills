@@ -6,60 +6,55 @@ import { ChatMistralAI } from "@langchain/mistralai";
 import { injectDynamicKeys } from '@/lib/keys-injector';
 
 /**
- * Asynchronously initializes the appropriate LangChain model based on the user's preferred model ID.
- * Fetches dynamic keys securely from Prisma first.
- * Automatically falls back to Google GenAI if the requested provider has no valid API key.
+ * Returns the first available model ID based on injected user API keys.
+ * Must be called after injectDynamicKeys() so process.env reflects user-supplied keys.
+ */
+function getDefaultModelId(): string {
+  if (process.env.GOOGLE_GENAI_API_KEY) return 'googleai/gemini-2.0-flash';
+  if (process.env.OPENAI_API_KEY) return 'openai/gpt-4o-mini';
+  if (process.env.ANTHROPIC_API_KEY) return 'anthropic/claude-haiku-4-5-20251001';
+  if (process.env.GROQ_API_KEY) return 'groq/llama-3.3-70b-versatile';
+  if (process.env.MISTRAL_API_KEY) return 'mistral/mistral-small-latest';
+  throw new Error('No AI provider keys configured. Please add API keys in Settings → API Keys.');
+}
+
+/**
+ * Initializes the appropriate LangChain model based on the user's preferred model ID.
+ * Keys are loaded dynamically from user settings — no platform environment variables required.
+ * Throws a descriptive error pointing to Settings if the requested provider key is missing.
  */
 export async function getLangChainModel(modelId?: string) {
   await injectDynamicKeys();
 
-  const id = modelId || 'googleai/gemini-2.0-flash';
+  const id = modelId || getDefaultModelId();
 
   if (id.startsWith('openai/') || id.startsWith('gpt')) {
-    if (process.env.OPENAI_API_KEY) {
-      const model = id.replace('openai/', '');
-      return new ChatOpenAI({
-        modelName: model,
-        openAIApiKey: process.env.OPENAI_API_KEY,
-      });
-    }
-    console.warn(`[LangChain] OpenAI key not found for model "${id}", falling back to Google GenAI.`);
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) throw new Error('OpenAI API key is not configured. Please add it in Settings → API Keys.');
+    return new ChatOpenAI({ modelName: id.replace('openai/', ''), openAIApiKey: key });
   }
 
   if (id.startsWith('anthropic/') || id.startsWith('claude')) {
-    if (process.env.ANTHROPIC_API_KEY) {
-      const model = id.replace('anthropic/', '');
-      return new ChatAnthropic({
-        modelName: model,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-      });
-    }
-    console.warn(`[LangChain] Anthropic key not found for model "${id}", falling back to Google GenAI.`);
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error('Anthropic API key is not configured. Please add it in Settings → API Keys.');
+    return new ChatAnthropic({ modelName: id.replace('anthropic/', ''), anthropicApiKey: key });
   }
 
   if (id.startsWith('groq/') || id.startsWith('llama') || id.startsWith('mixtral')) {
-    if (process.env.GROQ_API_KEY) {
-      const model = id.replace('groq/', '');
-      return new ChatGroq({ model, apiKey: process.env.GROQ_API_KEY });
-    }
-    console.warn(`[LangChain] Groq key not found for model "${id}", falling back to Google GenAI.`);
+    const key = process.env.GROQ_API_KEY;
+    if (!key) throw new Error('Groq API key is not configured. Please add it in Settings → API Keys.');
+    return new ChatGroq({ model: id.replace('groq/', ''), apiKey: key });
   }
 
-  if (id.startsWith('mistral/') || id.includes('mistral') || id.includes('mixtral-8x22b')) {
-    if (process.env.MISTRAL_API_KEY) {
-      const model = id.replace('mistral/', '');
-      return new ChatMistralAI({ model, apiKey: process.env.MISTRAL_API_KEY });
-    }
-    console.warn(`[LangChain] Mistral key not found for model "${id}", falling back to Google GenAI.`);
+  if (id.startsWith('mistral/') || (id.includes('mistral') && !id.startsWith('googleai/'))) {
+    const key = process.env.MISTRAL_API_KEY;
+    if (!key) throw new Error('Mistral API key is not configured. Please add it in Settings → API Keys.');
+    return new ChatMistralAI({ model: id.replace('mistral/', ''), apiKey: key });
   }
 
-  // Default / fallback: Google GenAI
-  const googleModel = id.startsWith('googleai/') ? id.replace('googleai/', '') : 'gemini-2.0-flash';
-  if (!process.env.GOOGLE_GENAI_API_KEY) {
-    throw new Error("Google GenAI API key is not configured. Please add it in Settings → API Keys.");
-  }
-  return new ChatGoogleGenerativeAI({
-    model: googleModel,
-    apiKey: process.env.GOOGLE_GENAI_API_KEY,
-  });
+  // Google GenAI (googleai/ prefix or bare gemini model name)
+  const key = process.env.GOOGLE_GENAI_API_KEY;
+  if (!key) throw new Error('Google GenAI API key is not configured. Please add it in Settings → API Keys.');
+  const googleModel = id.startsWith('googleai/') ? id.replace('googleai/', '') : id;
+  return new ChatGoogleGenerativeAI({ model: googleModel, apiKey: key });
 }

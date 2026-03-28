@@ -37,9 +37,7 @@ import { useEffect, useState } from "react";
 
 const AVAILABLE_MODELS = [
   { id: 'googleai/gemini-2.0-flash', label: 'Gemini 2.0 Flash', provider: 'google' },
-  { id: 'googleai/gemini-flash-latest', label: 'Gemini Flash (Latest)', provider: 'google' },
-  { id: 'googleai/gemini-1.5-flash', label: 'Gemini 1.5 Flash', provider: 'google' },
-  { id: 'googleai/gemini-1.5-pro', label: 'Gemini 1.5 Pro', provider: 'google' },
+  { id: 'googleai/gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite', provider: 'google' },
   { id: 'googleai/gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' },
   { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
   { id: 'openai/gpt-4o', label: 'GPT-4o', provider: 'openai' },

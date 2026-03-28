@@ -56,6 +56,8 @@ export default function SkillsPage() {
   const [editableCode, setEditableCode] = useState("");
   const [codeCopied, setCodeCopied] = useState(false);
   const [codeEditing, setCodeEditing] = useState(false);
+  const [manifestEditing, setManifestEditing] = useState(false);
+  const [editableManifest, setEditableManifest] = useState('');
 
   const skills = useMemo(() => {
     const customMap = new Map(customSkills.map(s => [s.id, s]));
@@ -145,8 +147,10 @@ export default function SkillsPage() {
   const openCodeViewer = (skill: Skill) => {
     setViewCodeSkill(skill);
     setEditableCode(generateSkillCode(skill));
+    setEditableManifest(generateSkillManifest(skill));
     setCodeViewTab('implementation');
     setCodeEditing(false);
+    setManifestEditing(false);
   };
 
   const handleSaveCode = async () => {
@@ -155,7 +159,16 @@ export default function SkillsPage() {
     await saveSkill(updated);
     setViewCodeSkill(updated);
     setCodeEditing(false);
-    toast({ title: "Code Saved", description: `${viewCodeSkill.name} implementation updated.` });
+    toast({ title: 'Code Saved', description: `${viewCodeSkill.name} implementation updated.` });
+  };
+
+  const handleSaveManifest = async () => {
+    if (!viewCodeSkill) return;
+    const updated = { ...viewCodeSkill, manifest: editableManifest } as any;
+    await saveSkill(updated);
+    setViewCodeSkill(updated);
+    setManifestEditing(false);
+    toast({ title: 'SKILL.md Saved', description: `${viewCodeSkill.name} manifest updated.` });
   };
 
   const handleCopyCode = (text: string) => {
@@ -393,7 +406,7 @@ export default function SkillsPage() {
               {(['implementation', 'manifest'] as const).map(t => (
                 <button
                   key={t}
-                  onClick={() => setCodeViewTab(t)}
+                  onClick={() => { setCodeViewTab(t); setCodeEditing(false); setManifestEditing(false); }}
                   className={`px-3 py-1.5 text-xs font-bold rounded-t-lg whitespace-nowrap transition-colors capitalize ${codeViewTab === t ? 'bg-accent/20 text-accent border-b-2 border-accent' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   {t === 'implementation' ? 'Implementation (TypeScript)' : 'SKILL.md'}
@@ -404,8 +417,13 @@ export default function SkillsPage() {
             {/* Code area */}
             <div className="flex-1 overflow-hidden relative">
               <div className="absolute top-3 right-3 z-10 flex gap-2">
-                {codeViewTab === 'implementation' && viewCodeSkill.isCustom && !codeEditing && (
+                {codeViewTab === 'implementation' && !codeEditing && (
                   <Button variant="ghost" size="sm" className="h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border" onClick={() => setCodeEditing(true)}>
+                    <Edit className="size-3" /> Edit
+                  </Button>
+                )}
+                {codeViewTab === 'manifest' && !manifestEditing && (
+                  <Button variant="ghost" size="sm" className="h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border" onClick={() => setManifestEditing(true)}>
                     <Edit className="size-3" /> Edit
                   </Button>
                 )}
@@ -435,10 +453,17 @@ export default function SkillsPage() {
                     </pre>
                   </ScrollArea>
                 )
+              ) : manifestEditing ? (
+                <textarea
+                  className="w-full h-full p-4 pt-12 text-[12px] leading-relaxed font-mono bg-background/50 text-foreground/90 resize-none focus:outline-none border-0"
+                  value={editableManifest}
+                  onChange={(e) => setEditableManifest(e.target.value)}
+                  spellCheck={false}
+                />
               ) : (
                 <ScrollArea className="h-full">
                   <pre className="p-4 pt-10 text-[12px] leading-relaxed font-mono text-foreground/90 whitespace-pre overflow-x-auto">
-                    <code>{generateSkillManifest(viewCodeSkill)}</code>
+                    <code>{editableManifest}</code>
                   </pre>
                 </ScrollArea>
               )}
@@ -451,15 +476,17 @@ export default function SkillsPage() {
               <div className="flex gap-2">
                 {codeEditing && (
                   <>
-                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setCodeEditing(false); setEditableCode(generateSkillCode(viewCodeSkill)); }}>
-                      Cancel
-                    </Button>
-                    <Button size="sm" className="gradient-copper text-xs h-8" onClick={handleSaveCode}>
-                      Save Code
-                    </Button>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setCodeEditing(false); setEditableCode(generateSkillCode(viewCodeSkill)); }}>Cancel</Button>
+                    <Button size="sm" className="gradient-copper text-xs h-8" onClick={handleSaveCode}>Save Code</Button>
                   </>
                 )}
-                {!codeEditing && (
+                {manifestEditing && (
+                  <>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setManifestEditing(false); setEditableManifest(generateSkillManifest(viewCodeSkill)); }}>Cancel</Button>
+                    <Button size="sm" className="gradient-copper text-xs h-8" onClick={handleSaveManifest}>Save SKILL.md</Button>
+                  </>
+                )}
+                {!codeEditing && !manifestEditing && (
                   <Button variant="ghost" size="sm" onClick={() => setViewCodeSkill(null)} className="text-xs">Close</Button>
                 )}
               </div>

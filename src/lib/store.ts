@@ -12,6 +12,7 @@ export interface Skill {
   enabled: boolean;
   isCustom?: boolean;
   code?: string; // Custom TypeScript implementation code
+  manifest?: string;
   userId?: string;
 }
 
@@ -26,6 +27,7 @@ export interface Agent {
   status: 'active' | 'inactive';
   userId?: string;
   updatedAt?: any;
+  code?: string;
 }
 
 export interface DatabaseConnection {
