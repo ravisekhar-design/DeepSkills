@@ -3,7 +3,7 @@
  * @fileOverview This flow enables the AI to synthesize technical skill modules for agents.
  */
 
-import { ai } from '@/ai/genkit';
+import { getGenkitInstance } from '../genkit';
 import { z } from 'genkit';
 
 const SkillGenerationInputSchema = z.object({
@@ -20,18 +20,20 @@ const SkillGenerationOutputSchema = z.object({
 });
 type SkillGenerationOutput = z.infer<typeof SkillGenerationOutputSchema>;
 
-const skillGenerationPrompt = ai.definePrompt({
-  name: 'skillGenerationPrompt',
-  input: { schema: SkillGenerationInputSchema },
-  output: { schema: SkillGenerationOutputSchema },
-  prompt: `You are a technical architect in the Personal Laboratory.
-  
-Based on the seed idea: "{{{seed}}}"
-
-Synthesize a professional skill module definition. Maintain a sophisticated, lab-oriented tone.`,
-});
-
 export async function generateSkill(input: SkillGenerationInput): Promise<SkillGenerationOutput> {
+  const ai = await getGenkitInstance();
+
+  const skillGenerationPrompt = ai.definePrompt({
+    name: 'skillGenerationPrompt',
+    input: { schema: SkillGenerationInputSchema },
+    output: { schema: SkillGenerationOutputSchema },
+    prompt: `You are a technical architect in DeepSkills.
+
+  Based on the seed idea: "{{{seed}}}"
+
+  Synthesize a professional skill module definition. Maintain a clear, technical tone.`,
+  });
+
   const modelsToTry = [
     input.preferredModel,
     'googleai/gemini-flash-latest',
@@ -46,7 +48,7 @@ export async function generateSkill(input: SkillGenerationInput): Promise<SkillG
       const { output } = await skillGenerationPrompt(input, {
         model: modelId as any
       });
-      return output!;
+      return output as any;
     } catch (error: any) {
       lastError = error;
       console.warn(`Skill Synthesis failed with ${modelId}. Retrying... Error: ${error.message}`);

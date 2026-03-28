@@ -39,13 +39,20 @@ export interface SystemSettings {
     aws: boolean;
   };
   globalKillSwitch: boolean;
+  apiKeys?: {
+    google?: string;
+    openai?: string;
+    anthropic?: string;
+    aws_access_key_id?: string;
+    aws_secret_access_key?: string;
+  };
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
   modelMapping: {
-    personaGeneration: 'googleai/gemini-1.5-flash',
-    skillSynthesis: 'googleai/gemini-1.5-flash',
-    conversation: 'googleai/gemini-1.5-flash',
+    personaGeneration: 'googleai/gemini-2.0-flash',
+    skillSynthesis: 'googleai/gemini-2.0-flash',
+    conversation: 'googleai/gemini-2.0-flash',
   },
   providers: {
     google: true,
@@ -54,6 +61,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     aws: false,
   },
   globalKillSwitch: false,
+  apiKeys: {},
 };
 
 export const DEFAULT_SKILLS: Skill[] = [
@@ -147,12 +155,12 @@ export const DEFAULT_SKILLS: Skill[] = [
   }
 ];
 
-export async function saveAgent(db: any, userId: string, agent: Agent) {
+export async function saveAgent(agent: Agent) {
   const key = `nexus_agents`;
   const res = await fetch(`/api/store?key=${key}`);
   const { data: agents } = await res.json();
   const existing = agents.findIndex((a: any) => a.id === agent.id);
-  const newAgent = { ...agent, userId, updatedAt: Date.now() };
+  const newAgent = { ...agent, updatedAt: Date.now() };
   if (existing >= 0) {
     agents[existing] = { ...agents[existing], ...newAgent };
   } else {
@@ -160,29 +168,31 @@ export async function saveAgent(db: any, userId: string, agent: Agent) {
   }
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: agents }),
   });
   window.dispatchEvent(new Event('nexus-local-update'));
 }
 
-export async function deleteAgent(db: any, userId: string, agentId: string) {
+export async function deleteAgent(agentId: string) {
   const key = `nexus_agents`;
   const res = await fetch(`/api/store?key=${key}`);
   const { data: agents } = await res.json();
   const filtered = agents.filter((a: any) => a.id !== agentId);
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: filtered }),
   });
   window.dispatchEvent(new Event('nexus-local-update'));
 }
 
-export async function saveSkill(db: any, userId: string, skill: Skill) {
+export async function saveSkill(skill: Skill) {
   const key = `nexus_skills`;
   const res = await fetch(`/api/store?key=${key}`);
   const { data: skills } = await res.json();
   const existing = skills.findIndex((a: any) => a.id === skill.id);
-  const newSkill = { ...skill, userId };
+  const newSkill = { ...skill };
   if (existing >= 0) {
     skills[existing] = { ...skills[existing], ...newSkill };
   } else {
@@ -190,27 +200,30 @@ export async function saveSkill(db: any, userId: string, skill: Skill) {
   }
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: skills }),
   });
   window.dispatchEvent(new Event('nexus-local-update'));
 }
 
-export async function deleteSkill(db: any, userId: string, skillId: string) {
+export async function deleteSkill(skillId: string) {
   const key = `nexus_skills`;
   const res = await fetch(`/api/store?key=${key}`);
   const { data: skills } = await res.json();
   const filtered = skills.filter((a: any) => a.id !== skillId);
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: filtered }),
   });
   window.dispatchEvent(new Event('nexus-local-update'));
 }
 
-export async function saveSystemSettings(db: any, userId: string, settings: SystemSettings) {
+export async function saveSystemSettings(settings: SystemSettings) {
   const key = `nexus_settings`;
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: settings }),
   });
   window.dispatchEvent(new Event('nexus-local-update'));
@@ -247,6 +260,7 @@ export async function saveChat(userId: string, agentId: string, messages: any[])
 
   await fetch('/api/store', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, data: chats }),
   });
 }

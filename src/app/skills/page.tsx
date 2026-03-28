@@ -7,16 +7,16 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Zap, Search, Shield, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, PowerOff, Edit } from "lucide-react";
+import { Zap, Search, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, Edit } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { generateSkill } from "@/ai/flows/skill-generation";
-import { useUser } from "@/firebase/auth/use-user";
-import { useCollection } from "@/firebase/firestore/use-collection";
-import { useDoc } from "@/firebase/firestore/use-doc";
+import { useUser } from "@/hooks/use-user";
+import { useCollection } from "@/hooks/use-collection";
+import { useDoc } from "@/hooks/use-doc";
 
 const CATEGORY_ICONS: Record<string, any> = {
   Finance: LineChart,
@@ -85,7 +85,7 @@ export default function SkillsPage() {
     if (!user) return;
 
     const updatedSkill = { ...skill, enabled: !skill.enabled };
-    saveSkill(null as any, user.uid, updatedSkill);
+    saveSkill(updatedSkill);
 
     toast({
       title: updatedSkill.enabled ? "Skill Activated" : "Skill Deactivated",
@@ -109,7 +109,7 @@ export default function SkillsPage() {
       isCustom: true,
     };
 
-    saveSkill(null as any, user.uid, skill);
+    saveSkill(skill);
     setIsNewSkillOpen(false);
     resetForm();
     toast({ title: editingSkill ? "Skill Updated" : "Skill Registered", description: `${skill.name} is now available in your Library.` });
@@ -134,7 +134,7 @@ export default function SkillsPage() {
 
   const handleDeleteSkill = (id: string) => {
     if (user) {
-      deleteSkill(null as any, user.uid, id);
+      deleteSkill(id);
       toast({ title: "Skill Purged", description: "The module has been removed from your Library." });
     }
   };
@@ -151,14 +151,14 @@ export default function SkillsPage() {
   if (!user) return null;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-8">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-2">
           <Badge variant="outline" className="border-accent/30 text-accent px-3 py-1 uppercase tracking-widest text-[10px] font-bold">
             Skill Library
           </Badge>
-          <h1 className="text-4xl font-bold tracking-tighter">Cognitive Capabilities</h1>
-          <p className="text-muted-foreground text-lg max-w-2xl">
+          <h1 className="text-2xl sm:text-4xl font-bold tracking-tighter">Cognitive Capabilities</h1>
+          <p className="text-muted-foreground sm:text-lg max-w-2xl">
             A repository of integrated tools. Toggled modules are available to your agents.
           </p>
         </div>
@@ -199,7 +199,7 @@ export default function SkillsPage() {
             </div>
 
             <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="name" className="text-[10px] uppercase tracking-widest font-bold">Skill Name</Label>
                   <Input

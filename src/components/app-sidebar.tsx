@@ -7,10 +7,7 @@ import {
   Zap,
   MessageSquare,
   Settings,
-  Building2,
   LogOut,
-  LogIn,
-  User as UserIcon,
   Hexagon
 } from "lucide-react";
 import {
@@ -29,15 +26,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useUser, useAuth } from "@/firebase/auth/use-user";
+import { useUser, useAuth } from "@/hooks/use-user";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Deep Agents", href: "/agents", icon: Users },
-  { name: "Skill Explorer", href: "/skills", icon: Zap },
-  { name: "Nexus Chat", href: "/chat", icon: MessageSquare },
+  { name: "Agents", href: "/agents", icon: Users },
+  { name: "Skills", href: "/skills", icon: Zap },
+  { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -46,9 +43,9 @@ export function AppSidebar() {
   const { user } = useUser();
   const auth = useAuth();
 
-  // Dummy handlers as the local environment assumes operator presence
-  const handleSignIn = () => { };
-  const handleSignOut = () => { };
+  const handleSignOut = () => {
+    auth.signOut();
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border bg-sidebar shadow-xl">
@@ -58,8 +55,8 @@ export function AppSidebar() {
             <Hexagon className="size-4" />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-bold">Personal Lab</span>
-            <span className="truncate text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Nexus Operator</span>
+            <span className="truncate font-bold">DeepSkills</span>
+            <span className="truncate text-[10px] text-muted-foreground uppercase tracking-widest font-bold">AI Agent Platform</span>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -68,7 +65,7 @@ export function AppSidebar() {
               </div>
             </TooltipTrigger>
             <TooltipContent side="right">
-              Theme Core Link
+              Toggle theme
             </TooltipContent>
           </Tooltip>
         </div>
@@ -77,7 +74,7 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="px-4 text-muted-foreground uppercase text-[10px] tracking-widest font-semibold mb-2">
-            Nexus Interface
+            Navigation
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -104,17 +101,36 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-4">
-        {/* User Profile Area Removed */}
+        <div className="flex items-center gap-3 px-2 py-3 mt-4 border border-sidebar-border/40 bg-sidebar-accent/20 rounded-xl group relative">
+          <Avatar className="h-8 w-8 rounded-lg border border-border">
+            <AvatarImage src={user?.photoURL || ''} alt={user?.displayName || 'User'} />
+            <AvatarFallback className="rounded-lg bg-secondary text-accent font-bold">
+              {user?.displayName ? user.displayName.substring(0, 2).toUpperCase() : 'DS'}
+            </AvatarFallback>
+          </Avatar>
+          <div className="grid flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-bold">{user?.displayName || 'Guest'}</span>
+            <span className="truncate text-[10px] text-muted-foreground uppercase tracking-widest">{user?.email || ''}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 absolute right-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            onClick={handleSignOut}
+          >
+            <LogOut className="size-4" />
+          </Button>
+        </div>
 
         <div className="p-4 rounded-xl glass-panel text-[10px] text-muted-foreground flex flex-col gap-2 border-accent/10">
           <div className="flex items-center gap-2">
             <div className={`size-2 rounded-full ${user ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-muted'}`} />
             <span className="font-bold tracking-widest uppercase">
-              {user ? 'Nexus Core Active' : 'Nexus Core Standby'}
+              {user ? 'System Online' : 'System Offline'}
             </span>
           </div>
           <div className="flex justify-between border-t border-border/40 pt-2">
-            <span>Uptime: 100%</span>
+            <span>Status: Ready</span>
             <span>v2.5.0</span>
           </div>
         </div>

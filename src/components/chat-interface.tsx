@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveChat, getChat, ChatThread } from "@/lib/store";
+import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveChat, getChat } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Bot, User, Zap, Terminal, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download } from "lucide-react";
 import { agentConversationToolExecution } from "@/ai/flows/agent-conversation-tool-execution";
 import { useToast } from "@/hooks/use-toast";
-import { useUser } from "@/firebase/auth/use-user";
-import { useCollection } from "@/firebase/firestore/use-collection";
-import { useDoc } from "@/firebase/firestore/use-doc";
+import { useUser } from "@/hooks/use-user";
+import { useCollection } from "@/hooks/use-collection";
+import { useDoc } from "@/hooks/use-doc";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { logSystemEvent } from "@/lib/logger";
@@ -58,7 +58,8 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
       }
     };
     initChat();
-  }, [agent, user]);
+    // Use stable primitive IDs, not object references, to prevent infinite re-render loops
+  }, [agent.id, user?.uid]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -147,7 +148,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <div className="flex-1 flex flex-col min-w-0 border-r border-border">
-        <header className="flex flex-col md:flex-row items-start md:items-center justify-between p-6 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm gap-4 sticky top-0 z-10">
+        <header className="flex flex-col md:flex-row items-start md:items-center justify-between pl-14 pr-6 py-6 md:px-6 bg-sidebar/30 backdrop-blur-md border-b border-border shadow-sm gap-4 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="size-8 rounded-lg gradient-sapphire flex items-center justify-center font-bold text-accent shadow-lg shadow-accent/10">
               {agent.name.charAt(0)}
@@ -162,7 +163,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
               variant={isIntelOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setIsIntelOpen(!isIntelOpen)}
-              className="text-xs font-bold uppercase tracking-widest border border-transparent data-[state=open]:border-accent/30 hidden xl:flex mr-4"
+              className="text-xs font-bold uppercase tracking-widest border border-transparent data-[state=open]:border-accent/30 hidden lg:flex mr-4"
             >
               <BrainCircuit className="size-4 mr-2" />
               Toggle Intel
@@ -370,7 +371,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
       </div>
 
       {isIntelOpen && (
-        <aside className="w-80 hidden xl:flex flex-col bg-sidebar/50 backdrop-blur-md border-l border-border animate-in slide-in-from-right-8 duration-300">
+        <aside className="w-80 hidden lg:flex flex-col bg-sidebar/50 backdrop-blur-md border-l border-border animate-in slide-in-from-right-8 duration-300">
           <header className="h-16 flex items-center px-6 border-b border-border">
             <h3 className="font-bold tracking-tight text-sm uppercase tracking-widest text-muted-foreground">Contextual Intel</h3>
           </header>

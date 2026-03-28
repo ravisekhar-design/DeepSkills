@@ -2,25 +2,29 @@ import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 import { openAI } from 'genkitx-openai';
 import { anthropic } from 'genkitx-anthropic';
+import { injectDynamicKeys } from '@/lib/keys-injector';
 
 /**
- * Centrally initialized Genkit instance for the Personal Laboratory.
- * Plugins are initialized defensively based on environment variables.
+ * Asynchronously initializes the Genkit instance for the Personal Laboratory.
+ * Fetches dynamic keys securely from Prisma first.
  */
+export async function getGenkitInstance() {
+  await injectDynamicKeys();
 
-const plugins: any[] = [googleAI()];
+  const plugins: any[] = [googleAI()];
 
-// Add community plugins if keys exist
-if (process.env.OPENAI_API_KEY) {
-  plugins.push(openAI() as any);
+  // Add community plugins if keys exist in runtime process.env
+  if (process.env.OPENAI_API_KEY) {
+    plugins.push(openAI() as any);
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    plugins.push(anthropic() as any);
+  }
+
+  return genkit({
+    plugins,
+    // Default to a stable core model identifier
+    model: 'googleai/gemini-flash-latest',
+  });
 }
-
-if (process.env.ANTHROPIC_API_KEY) {
-  plugins.push(anthropic() as any);
-}
-
-export const ai = genkit({
-  plugins,
-  // Default to a stable core model identifier
-  model: 'googleai/gemini-flash-latest',
-});

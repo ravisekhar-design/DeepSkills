@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  password      String?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  agents        Agent[]
+  skills        Skill[]
+  settings      SystemSettings?
+  chatThreads   ChatThread[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Agent {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  persona    String
+  objectives String
+  parameters String   // stored as JSON string
+  skills     String   // stored as JSON string array of IDs
+  status     String   @default("active")
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Skill {
+  id          String   @id // Use string as ID for consistency with existing skills
+  userId      String?
+  name        String
+  description String
+  category    String
+  inputs      String   // stored as JSON string array
+  enabled     Boolean  @default(true)
+  isCustom    Boolean  @default(false)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SystemSettings {
+  id               String  @id @default(cuid())
+  userId           String  @unique
+  modelMapping     String  // stored as JSON string
+  providers        String  // stored as JSON string
+  globalKillSwitch Boolean @default(false)
+  apiKeys          String? // stored as JSON string
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatThread {
+  id        String   @id @default(cuid())
+  userId    String
+  agentId   String
+  messages  String   // stored as JSON string array
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     String
+  message   String
+  details   String?  // Stored as JSON string
+  createdAt DateTime @default(now())
+}

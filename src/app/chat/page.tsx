@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, Suspense } from "react";
+import { Suspense } from "react";
 import { Agent } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,8 +8,8 @@ import { MessageSquare, Users, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat-interface";
-import { useUser } from "@/firebase/auth/use-user";
-import { useCollection } from "@/firebase/firestore/use-collection";
+import { useUser } from "@/hooks/use-user";
+import { useCollection } from "@/hooks/use-collection";
 
 function ChatPageContent() {
   const { user } = useUser();
@@ -23,14 +23,21 @@ function ChatPageContent() {
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
           <Users className="size-16 mx-auto mb-6 text-muted-foreground opacity-20" />
-          <h2 className="text-2xl font-bold mb-2">Nexus Operator Required</h2>
-          <p className="text-muted-foreground">Sign in to access secure communication channels.</p>
+          <h2 className="text-2xl font-bold mb-2">Sign In Required</h2>
+          <p className="text-muted-foreground">Sign in to chat with your agents.</p>
         </div>
       </div>
     );
   }
 
   if (selectedAgentId) {
+    if (loading) {
+      return (
+        <div className="h-screen flex items-center justify-center">
+          <Loader2 className="animate-spin size-8 text-accent" />
+        </div>
+      );
+    }
     const agent = agents.find(a => a.id === selectedAgentId);
     if (agent) {
       return <ChatInterface agent={agent} />;
@@ -44,9 +51,9 @@ function ChatPageContent() {
           <div className="size-16 rounded-2xl gradient-copper mx-auto flex items-center justify-center shadow-xl shadow-accent/20 mb-6">
             <MessageSquare className="size-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">Nexus Communication Channel</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Chat with an Agent</h1>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Select a Deep Agent to establish a contextual secure link and begin high-level task execution.
+            Select an agent to start a conversation and execute tasks.
           </p>
         </div>
 
@@ -68,7 +75,7 @@ function ChatPageContent() {
                   </CardHeader>
                   <div className="px-6 pb-6 mt-auto">
                     <div className="flex items-center text-xs font-bold text-accent uppercase tracking-widest">
-                      Establish Link <ChevronRight className="size-3 ml-1" />
+                      Open Chat <ChevronRight className="size-3 ml-1" />
                     </div>
                   </div>
                 </Link>
@@ -77,7 +84,7 @@ function ChatPageContent() {
           ) : (
             <div className="col-span-full py-12 border border-dashed rounded-xl bg-secondary/10">
               <Users className="size-12 mx-auto mb-4 opacity-20" />
-              <p className="text-muted-foreground mb-4">No agents available in the Nexus.</p>
+              <p className="text-muted-foreground mb-4">No agents created yet.</p>
               <Button asChild className="gradient-copper">
                 <Link href="/agents">Configure Agent</Link>
               </Button>

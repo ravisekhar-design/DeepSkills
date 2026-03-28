@@ -29,6 +29,12 @@ yarn-error.log*
 .env*.local
 .env
 
+# SQLite database
+prisma/*.db
+prisma/*.db-journal
+*.db
+*.db-journal
+
 # vercel
 .vercel
 
@@ -40,3 +46,5 @@ next-env.d.ts
 .DS_Store
 *.log
 docker-compose.override.yml
+
+/src/generated/prisma

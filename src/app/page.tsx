@@ -4,22 +4,22 @@
 import { useMemo, useState, useEffect } from "react";
 import { Agent, Skill, DEFAULT_SKILLS } from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Users, Zap, Activity, Clock, ChevronRight, Settings2, Loader2, LogIn, ShieldAlert, BrainCircuit } from "lucide-react";
+import { Users, Zap, Activity, ChevronRight, Loader2, LogIn, ShieldAlert, BrainCircuit } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { useUser, useAuth } from "@/firebase/auth/use-user";
-import { useCollection } from "@/firebase/firestore/use-collection";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useUser } from "@/hooks/use-user";
+import { useCollection } from "@/hooks/use-collection";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 export default function Dashboard() {
+  const router = useRouter();
   const { user, loading: authLoading } = useUser();
-  const auth = useAuth();
 
   const [chartData, setChartData] = useState<any[]>([]);
 
   useEffect(() => {
-    // Generate simulated neural activity data
     const data = Array.from({ length: 12 }, (_, i) => ({
       time: `${i}:00`,
       activity: Math.floor(Math.random() * 40) + 60,
@@ -36,20 +36,22 @@ export default function Dashboard() {
     return [...DEFAULT_SKILLS, ...pureCustom];
   }, [customSkills]);
 
+  const lastActive = agents.length > 0
+    ? new Date(Math.max(...agents.map((a: Agent) => a.updatedAt ? Number(a.updatedAt) : 0))).toLocaleDateString()
+    : "—";
+
   const stats = [
     { label: "Active Agents", value: agents.length, icon: Users, color: "text-accent" },
     { label: "Skill Modules", value: mergedSkills.length, icon: Zap, color: "text-blue-400" },
-    { label: "Laboratory Depth", value: "98.2%", icon: BrainCircuit, color: "text-purple-400" },
-    { label: "Nexus Pulse", value: "Active", icon: Activity, color: "text-green-400" },
+    { label: "System Status", value: "Online", icon: Activity, color: "text-green-400" },
+    { label: "Last Active", value: lastActive, icon: BrainCircuit, color: "text-purple-400" },
   ];
-
-  const handleSignIn = () => { };
 
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen space-y-4">
         <Loader2 className="size-12 animate-spin text-accent opacity-20" />
-        <p className="text-muted-foreground animate-pulse font-mono text-xs uppercase tracking-widest">Establishing Neural Link...</p>
+        <p className="text-muted-foreground animate-pulse font-mono text-xs uppercase tracking-widest">Loading...</p>
       </div>
     );
   }
@@ -61,21 +63,21 @@ export default function Dashboard() {
           <ShieldAlert className="size-10 text-accent opacity-50" />
         </div>
         <div className="space-y-2">
-          <h2 className="text-3xl font-bold tracking-tighter uppercase">Nexus Operator Required</h2>
-          <p className="text-muted-foreground leading-relaxed">Please establish your digital identity to access the Personal Laboratory and orchestrate your Deep Agents.</p>
+          <h2 className="text-3xl font-bold tracking-tighter uppercase">Sign In Required</h2>
+          <p className="text-muted-foreground leading-relaxed">Sign in to access DeepSkills and orchestrate your AI agents.</p>
         </div>
-        <Button onClick={handleSignIn} size="lg" className="gradient-copper w-full h-12 text-sm font-bold uppercase tracking-widest shadow-xl shadow-accent/20">
-          <LogIn className="size-4 mr-2" /> Establish Identity Link
+        <Button onClick={() => router.push('/login')} size="lg" className="gradient-copper w-full h-12 text-sm font-bold uppercase tracking-widest shadow-xl shadow-accent/20">
+          <LogIn className="size-4 mr-2" /> Sign In
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-10">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-10">
       <header className="space-y-2">
-        <h1 className="text-4xl font-bold tracking-tight">System Overview</h1>
-        <p className="text-muted-foreground">Monitoring the cognitive telemetry of your Personal Laboratory.</p>
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">System Overview</h1>
+        <p className="text-muted-foreground">Monitor your DeepSkills workspace at a glance.</p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -97,13 +99,13 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <Card className="lg:col-span-2 glass-panel">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Neural Activity Analytics</CardTitle>
-            <CardDescription>Real-time processing load across active deep agents.</CardDescription>
+            <CardTitle className="text-lg font-bold">Agent Activity</CardTitle>
+            <CardDescription>Processing load across active agents.</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] w-full pt-4">
             <ChartContainer config={{
-              activity: { label: "Neural Load", color: "hsl(var(--accent))" },
-              utilization: { label: "Synaptic Use", color: "hsl(var(--primary))" }
+              activity: { label: "Agent Load", color: "hsl(var(--accent))" },
+              utilization: { label: "Utilization", color: "hsl(var(--primary))" }
             }} className="h-full w-full">
               <AreaChart data={chartData} margin={{ left: -20, right: 10 }}>
                 <defs>
@@ -139,8 +141,8 @@ export default function Dashboard() {
         <Card className="glass-panel">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>Recent Entities</CardTitle>
-              <CardDescription>Recently synchronized deep agents.</CardDescription>
+              <CardTitle>Recent Agents</CardTitle>
+              <CardDescription>Your most recently updated agents.</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -150,9 +152,9 @@ export default function Dashboard() {
               </div>
             ) : agents.length === 0 ? (
               <div className="py-10 text-center text-muted-foreground">
-                <p className="text-xs uppercase tracking-widest opacity-50 mb-4">No Agents Detected</p>
+                <p className="text-xs uppercase tracking-widest opacity-50 mb-4">No Agents Found</p>
                 <Button asChild variant="link" className="text-accent text-xs">
-                  <Link href="/agents">Initialize first agent</Link>
+                  <Link href="/agents">Create your first agent</Link>
                 </Button>
               </div>
             ) : (
@@ -164,7 +166,7 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold truncate max-w-[120px]">{agent.name}</div>
-                      <div className="text-[10px] text-muted-foreground">ID: {agent.id}</div>
+                      <div className="text-[10px] text-muted-foreground">{agent.skills?.length || 0} skills</div>
                     </div>
                   </div>
                   <Button asChild variant="ghost" size="icon" className="size-8">
@@ -176,7 +178,7 @@ export default function Dashboard() {
               ))
             )}
             <Button asChild className="w-full mt-4 gradient-copper text-xs font-bold uppercase" variant="outline">
-              <Link href="/agents">Deploy New Agent</Link>
+              <Link href="/agents">Create New Agent</Link>
             </Button>
           </CardContent>
         </Card>

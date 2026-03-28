@@ -3,7 +3,7 @@
  * @fileOverview This file defines a Genkit flow for generating detailed AI agent personas.
  */
 
-import { ai } from '@/ai/genkit';
+import { getGenkitInstance } from '../genkit';
 import { z } from 'genkit';
 
 const AgentPersonaGenerationInputSchema = z.object({
@@ -21,18 +21,20 @@ const AgentPersonaGenerationOutputSchema = z.object({
 
 type AgentPersonaGenerationOutput = z.infer<typeof AgentPersonaGenerationOutputSchema>;
 
-const agentPersonaPrompt = ai.definePrompt({
-  name: 'agentPersonaPrompt',
-  input: { schema: AgentPersonaGenerationInputSchema },
-  output: { schema: AgentPersonaGenerationOutputSchema },
-  prompt: `You are an expert AI agent designer for the Personal Laboratory. Develop a comprehensive persona and strategic parameters.
-
-Role Description: {{{roleDescription}}}
-
-Generate a structured JSON response matching the required schema.`,
-});
-
 export async function agentPersonaGeneration(input: AgentPersonaGenerationInput): Promise<AgentPersonaGenerationOutput> {
+  const ai = await getGenkitInstance();
+
+  const agentPersonaPrompt = ai.definePrompt({
+    name: 'agentPersonaPrompt',
+    input: { schema: AgentPersonaGenerationInputSchema },
+    output: { schema: AgentPersonaGenerationOutputSchema },
+    prompt: `You are an expert AI agent designer for DeepSkills. Develop a comprehensive persona and strategic parameters.
+  
+  Role Description: {{{roleDescription}}}
+  
+  Generate a structured JSON response matching the required schema.`,
+  });
+
   const modelsToTry = [
     input.preferredModel,
     'googleai/gemini-flash-latest',
@@ -47,13 +49,10 @@ export async function agentPersonaGeneration(input: AgentPersonaGenerationInput)
       const { output } = await agentPersonaPrompt(input, {
         model: modelId as any
       });
-      return output!;
+      return output as any;
     } catch (error: any) {
       lastError = error;
-      console.error(`====== PERSONA SYNTHESIS ERROR [${modelId}] ======`);
-      console.error(error);
-      console.error(error?.stack);
-      console.warn(`Persona Synthesis failed with ${modelId}. Retrying... Error: ${error.message}`);
+      console.warn(`Persona Synthesis failed with ${modelId}, trying next model. Error: ${error.message}`);
     }
   }
 

@@ -16,11 +16,12 @@ export function useCollection<T = DocumentData>(query: Query<T> | null, mockKey:
     const loadData = async () => {
       setLoading(false);
       try {
-        const res = await fetch(`/api/${mockKey}`, { cache: 'no-store' });
-        const rawData = await res.json();
+        const res = await fetch(`/api/store?key=nexus_${mockKey}`, { cache: 'no-store' });
+        const json = await res.json();
+        const rawData = json.data || [];
 
         if (mockKey === 'agents' && Array.isArray(rawData)) {
-          rawData.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+          rawData.sort((a: any, b: any) => new Date(b.updatedAt || Date.now()).getTime() - new Date(a.updatedAt || Date.now()).getTime());
         }
         setData(Array.isArray(rawData) ? rawData : []);
       } catch (e: any) {

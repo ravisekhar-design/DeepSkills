@@ -16,15 +16,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { agentPersonaGeneration } from "@/ai/flows/agent-persona-generation";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useUser, useAuth } from "@/firebase/auth/use-user";
-import { useCollection } from "@/firebase/firestore/use-collection";
-import { useDoc } from "@/firebase/firestore/use-doc";
+import { useUser } from "@/hooks/use-user";
+import { useCollection } from "@/hooks/use-collection";
+import { useDoc } from "@/hooks/use-doc";
 
 export default function AgentsPage() {
+  const router = useRouter();
   const { user, loading: authLoading } = useUser();
-  const auth = useAuth();
   const { toast } = useToast();
 
   const { data: agents = [] } = useCollection<Agent>(null, 'agents');
@@ -54,7 +55,6 @@ export default function AgentsPage() {
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
-  const handleSignIn = () => { };
 
   const handleGeneratePersona = async () => {
     if (!roleDesc) {
@@ -79,8 +79,12 @@ export default function AgentsPage() {
   };
 
   const handleSave = () => {
-    if (!user || !name || !persona) {
-      toast({ title: "Error", description: "Identity parameters are required.", variant: "destructive" });
+    if (!user) {
+      toast({ title: "Error", description: "User session not found.", variant: "destructive" });
+      return;
+    }
+    if (!name || !persona) {
+      toast({ title: "Error", description: "Agent Name and Neural Persona are required. Please return to the 'Persona & Goals' tab to fill them out.", variant: "destructive" });
       return;
     }
 
@@ -94,7 +98,7 @@ export default function AgentsPage() {
       status: editingAgent ? editingAgent.status : 'active',
     };
 
-    saveAgent(null as any, user.uid, agentData);
+    saveAgent(agentData);
     setIsNewAgentOpen(false);
     resetForm();
     toast({
@@ -129,7 +133,7 @@ export default function AgentsPage() {
 
   const handleDelete = (id: string) => {
     if (user) {
-      deleteAgent(null as any, user.uid, id);
+      deleteAgent(id);
       toast({ title: "Agent Terminated", description: "Removed from Nexus." });
     }
   };
@@ -165,22 +169,22 @@ export default function AgentsPage() {
           <ShieldAlert className="size-10 text-accent opacity-50" />
         </div>
         <div className="space-y-2">
-          <h2 className="text-3xl font-bold tracking-tighter uppercase">Nexus Operator Required</h2>
-          <p className="text-muted-foreground leading-relaxed">Please establish your digital identity to manage laboratory agents and specialized skill pipelines.</p>
+          <h2 className="text-3xl font-bold tracking-tighter uppercase">Sign In Required</h2>
+          <p className="text-muted-foreground leading-relaxed">Sign in to manage your AI agents and skill pipelines.</p>
         </div>
-        <Button onClick={handleSignIn} size="lg" className="gradient-copper w-full h-12 text-sm font-bold uppercase tracking-widest shadow-xl shadow-accent/20">
-          <LogIn className="size-4 mr-2" /> Establish Identity Link
+        <Button onClick={() => router.push('/login')} size="lg" className="gradient-copper w-full h-12 text-sm font-bold uppercase tracking-widest shadow-xl shadow-accent/20">
+          <LogIn className="size-4 mr-2" /> Sign In
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-4xl font-bold tracking-tighter">Autonomous Entities</h1>
-          <p className="text-muted-foreground text-lg">Define and orchestrate cognitive agents with specialized personas.</p>
+          <h1 className="text-2xl sm:text-4xl font-bold tracking-tighter">Autonomous Entities</h1>
+          <p className="text-muted-foreground sm:text-lg">Define and orchestrate cognitive agents with specialized personas.</p>
         </div>
         <Dialog open={isNewAgentOpen} onOpenChange={(open) => {
           setIsNewAgentOpen(open);
@@ -191,7 +195,7 @@ export default function AgentsPage() {
               <Plus className="mr-2 size-5" /> Initialize Deep Agent
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl glass-panel p-0 overflow-hidden border-accent/20">
+          <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 overflow-hidden border-accent/20">
             <DialogHeader className="p-6 pb-2">
               <DialogTitle className="text-2xl flex items-center gap-3">
                 <BrainCircuit className="size-7 text-accent" />
@@ -282,7 +286,7 @@ export default function AgentsPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="skills" className="grid grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
                   <div className="space-y-4 overflow-hidden flex flex-col">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Modules</Label>
                     <ScrollArea className="flex-1 pr-4">
