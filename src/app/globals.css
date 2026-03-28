@@ -87,6 +87,11 @@
   @apply bg-card/50 backdrop-blur-md border border-border;
 }
 
+.chat-message {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 80px;
+}
+
 .gradient-copper {
   background: linear-gradient(135deg, #B87333 0%, #8B4513 100%);
 }

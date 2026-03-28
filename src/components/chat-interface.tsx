@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveChat, getChat } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download, Copy, Check, FileDown } from "lucide-react";
 import { agentConversationToolExecution } from "@/ai/flows/agent-conversation-tool-execution";
@@ -217,7 +216,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         <ScrollArea className="flex-1 p-3 sm:p-6 bg-[#080808]">
           <div className="max-w-3xl mx-auto space-y-4 sm:space-y-8">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex gap-2 sm:gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div key={i} className={`chat-message flex gap-2 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-200 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <div className={`size-7 sm:size-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-accent' : 'gradient-sapphire'
                   }`}>
                   {msg.role === 'user' ? <User className="size-3 sm:size-4 text-white" /> : <Bot className="size-3 sm:size-4 text-accent" />}
@@ -371,14 +370,20 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
               accept=".txt,.csv,.json,.md,.js,.ts,.html,.css"
             />
             <div className="relative flex-1">
-              <Input
-                placeholder="Message agent..."
-                className="h-11 sm:h-12 bg-secondary/50 border-border pr-10 focus:ring-accent text-sm"
+              <textarea
+                placeholder="Message agent... (Shift+Enter for newline)"
+                className="w-full min-h-[44px] max-h-[160px] resize-none bg-secondary/50 border border-border rounded-md px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-1 focus:ring-accent [field-sizing:content] overflow-y-auto leading-6 placeholder:text-muted-foreground"
                 value={input}
+                rows={1}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
               />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+              <div className="absolute right-2 bottom-2">
                 <Button variant="ghost" size="icon" className="size-7 rounded-full text-muted-foreground hover:text-accent">
                   <Sparkles className="size-3.5" />
                 </Button>
@@ -387,18 +392,18 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
             <Button
               variant="outline"
               size="icon"
-              className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 bg-secondary/50 border-border hover:border-accent/40"
+              className="h-11 w-11 shrink-0 self-end bg-secondary/50 border-border hover:border-accent/40"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
             >
-              <Paperclip className="size-4 sm:size-5 text-muted-foreground" />
+              <Paperclip className="size-4 text-muted-foreground" />
             </Button>
             <Button
-              className="h-11 w-11 sm:h-12 sm:w-12 gradient-copper shadow-lg shadow-accent/20 shrink-0"
+              className="h-11 w-11 gradient-copper shadow-lg shadow-accent/20 shrink-0 self-end"
               onClick={handleSend}
               disabled={isLoading || (!input.trim() && !attachedFile)}
             >
-              <Send className="size-4 sm:size-5" />
+              <Send className="size-4" />
             </Button>
           </div>
         </div>
