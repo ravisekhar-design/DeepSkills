@@ -20,6 +20,8 @@ const AgentConversationInputSchema = z.object({
   chatHistory: z.array(ChatMessageSchema).optional().describe('Previous messages.'),
   availableSkills: z.array(z.string()).optional().describe('List of enabled skill IDs for this agent.'),
   preferredModel: z.string().optional().describe('The model to use for this turn.'),
+  databaseConnections: z.array(z.string()).optional().describe('List of database connection IDs this agent can query.'),
+  userId: z.string().optional().describe('The authenticated user ID for database lookups.'),
 });
 type AgentConversationInput = z.infer<typeof AgentConversationInputSchema>;
 
@@ -115,6 +117,44 @@ export async function agentConversationToolExecution(input: AgentConversationInp
   const activeTools = (input.availableSkills || [])
     .map(id => TOOL_MAP[id])
     .filter(Boolean);
+
+  // Add database query tools for each connected database
+  if (input.databaseConnections?.length && input.userId) {
+    const { executeDbQuery } = await import('@/lib/db-connector');
+    const { prisma } = await import('@/lib/prisma');
+
+    for (const connId of input.databaseConnections) {
+      const conn = await (prisma as any).databaseConnection.findFirst({
+        where: { id: connId, userId: input.userId },
+        select: { id: true, name: true, type: true, database: true, readOnly: true },
+      });
+      if (!conn) continue;
+
+      const dbTool = tool(
+        async (args: { sql: string }) => {
+          try {
+            const result = await executeDbQuery(connId, input.userId!, args.sql);
+            const preview = result.rows.slice(0, 20);
+            return [
+              `Query executed on "${conn.name}" (${conn.type}) in ${result.executionMs}ms.`,
+              `Rows returned: ${result.rowCount}${result.truncated ? ` (showing first ${preview.length})` : ''}.`,
+              `\`\`\`json\n${JSON.stringify(preview, null, 2)}\n\`\`\``,
+            ].join('\n');
+          } catch (err: any) {
+            return `Database error: ${err.message}`;
+          }
+        },
+        {
+          name: `db_query_${conn.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`,
+          description: `Query the "${conn.name}" ${conn.type} database${conn.database ? ` (database: ${conn.database})` : ''}. ${conn.readOnly ? 'Read-only — SELECT queries only.' : 'Read-write access.'} Write natural language questions and I will generate the appropriate SQL.`,
+          schema: z.object({
+            sql: z.string().describe('The SQL query to execute.'),
+          }),
+        }
+      );
+      activeTools.push(dbTool);
+    }
+  }
 
   const systemPrompt = `You are a specialized AI assistant in DeepSkills.
 Your assigned skill pipeline: ${input.availableSkills?.join(', ') || 'None'}.

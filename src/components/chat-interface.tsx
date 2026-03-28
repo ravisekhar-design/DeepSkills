@@ -134,7 +134,9 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         query: userQuery,
         chatHistory: history,
         availableSkills: agent.skills,
-        preferredModel: settings.modelMapping.conversation
+        preferredModel: settings.modelMapping.conversation,
+        databaseConnections: agent.databases || [],
+        userId: user?.uid,
       });
 
       const botMessage: Message = {

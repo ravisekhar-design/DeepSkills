@@ -11,5 +11,7 @@ export async function GET() {
         openai: !!(process.env.OPENAI_API_KEY || dynamicKeys.openai),
         anthropic: !!(process.env.ANTHROPIC_API_KEY || dynamicKeys.anthropic),
         aws: !!((process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) || (dynamicKeys.aws_access_key_id && dynamicKeys.aws_secret_access_key)),
+        groq: !!(process.env.GROQ_API_KEY || dynamicKeys.groq),
+        mistral: !!(process.env.MISTRAL_API_KEY || dynamicKeys.mistral),
     });
 }

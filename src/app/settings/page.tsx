@@ -40,9 +40,20 @@ const AVAILABLE_MODELS = [
   { id: 'googleai/gemini-flash-latest', label: 'Gemini Flash (Latest)', provider: 'google' },
   { id: 'googleai/gemini-1.5-flash', label: 'Gemini 1.5 Flash', provider: 'google' },
   { id: 'googleai/gemini-1.5-pro', label: 'Gemini 1.5 Pro', provider: 'google' },
+  { id: 'googleai/gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' },
   { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
   { id: 'openai/gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { id: 'anthropic/claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', provider: 'anthropic' },
+  { id: 'openai/gpt-4-turbo', label: 'GPT-4 Turbo', provider: 'openai' },
+  { id: 'anthropic/claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet', provider: 'anthropic' },
+  { id: 'anthropic/claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku', provider: 'anthropic' },
+  { id: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5', provider: 'anthropic' },
+  { id: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', provider: 'groq' },
+  { id: 'groq/llama-3.1-70b-versatile', label: 'Llama 3.1 70B (Groq)', provider: 'groq' },
+  { id: 'groq/mixtral-8x7b-32768', label: 'Mixtral 8x7B (Groq)', provider: 'groq' },
+  { id: 'groq/llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (Groq)', provider: 'groq' },
+  { id: 'mistral/mistral-large-latest', label: 'Mistral Large', provider: 'mistral' },
+  { id: 'mistral/mistral-small-latest', label: 'Mistral Small', provider: 'mistral' },
+  { id: 'mistral/open-mixtral-8x22b', label: 'Mixtral 8x22B (Mistral)', provider: 'mistral' },
 ];
 
 const TASK_LABELS: Record<string, string> = {
@@ -137,7 +148,7 @@ export default function SettingsPage() {
   const { data: settingsData, loading } = useDoc<SystemSettings>(null);
   const settings = settingsData || DEFAULT_SETTINGS;
 
-  const [envStatus, setEnvStatus] = useState({ google: false, openai: false, anthropic: false, aws: false });
+  const [envStatus, setEnvStatus] = useState({ google: false, openai: false, anthropic: false, aws: false, groq: false, mistral: false });
   const [envStatusFetched, setEnvStatusFetched] = useState(false);
 
   useEffect(() => {
@@ -199,11 +210,13 @@ export default function SettingsPage() {
               <Badge variant="outline" className="font-mono text-[10px] text-accent border-accent/30 bg-accent/10">Active Providers</Badge>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
-                { id: 'google', name: 'Google Gemini', desc: 'Primary multimodal models', icon: BrainCircuit },
+                { id: 'google', name: 'Google Gemini', desc: 'Gemini 2.0/1.5 family', icon: BrainCircuit },
                 { id: 'openai', name: 'OpenAI', desc: 'GPT-4o family', icon: Sparkles },
-                { id: 'anthropic', name: 'Anthropic', desc: 'Claude family', icon: Zap },
+                { id: 'anthropic', name: 'Anthropic', desc: 'Claude 3.5/4.x family', icon: Zap },
+                { id: 'groq', name: 'Groq', desc: 'Llama & Mixtral — ultra-fast', icon: Cpu },
+                { id: 'mistral', name: 'Mistral AI', desc: 'Mistral Large & Small', icon: ArrowRightLeft },
                 { id: 'aws', name: 'AWS Bedrock', desc: 'Enterprise cloud models', icon: Cpu },
               ].map((provider) => (
                 <Card key={provider.id} className="glass-panel hover:border-accent/30 transition-all border border-border">
@@ -309,7 +322,7 @@ export default function SettingsPage() {
               <p className="text-sm text-muted-foreground mt-1">Configure provider credentials. Keys are stored in your local database.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <ApiKeyDialog
                 title="Google"
                 description="Unlocks Gemini models."
@@ -344,6 +357,22 @@ export default function SettingsPage() {
                 ]}
                 savedKeys={settings.apiKeys}
                 onSave={(vals) => saveApiKeys({ aws_access_key_id: vals.aws_access_key_id, aws_secret_access_key: vals.aws_secret_access_key })}
+              />
+              <ApiKeyDialog
+                title="Groq"
+                description="Unlocks Llama 3.x and Mixtral at ultra-fast inference speeds."
+                icon={Cpu}
+                fields={[{ id: 'groq-key', label: 'API Key', placeholder: 'gsk_...', key: 'groq' }]}
+                savedKeys={settings.apiKeys}
+                onSave={(vals) => saveApiKeys({ groq: vals.groq })}
+              />
+              <ApiKeyDialog
+                title="Mistral AI"
+                description="Unlocks Mistral Large, Small, and Mixtral 8x22B models."
+                icon={ArrowRightLeft}
+                fields={[{ id: 'mistral-key', label: 'API Key', placeholder: '...', key: 'mistral' }]}
+                savedKeys={settings.apiKeys}
+                onSave={(vals) => saveApiKeys({ mistral: vals.mistral })}
               />
             </div>
           </div>

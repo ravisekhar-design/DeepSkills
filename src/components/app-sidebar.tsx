@@ -8,7 +8,8 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  Hexagon
+  Hexagon,
+  Database
 } from "lucide-react";
 import {
   Sidebar,
@@ -34,6 +35,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Agents", href: "/agents", icon: Users },
   { name: "Skills", href: "/skills", icon: Zap },
+  { name: "Databases", href: "/databases", icon: Database },
   { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

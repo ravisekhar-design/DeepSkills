@@ -13,17 +13,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  password      String?
-  image         String?
-  accounts      Account[]
-  sessions      Session[]
-  agents        Agent[]
-  skills        Skill[]
-  settings      SystemSettings?
-  chatThreads   ChatThread[]
+  id                  String               @id @default(cuid())
+  name                String?
+  email               String?              @unique
+  password            String?
+  image               String?
+  accounts            Account[]
+  sessions            Session[]
+  agents              Agent[]
+  skills              Skill[]
+  settings            SystemSettings?
+  chatThreads         ChatThread[]
+  databaseConnections DatabaseConnection[]
 }
 
 model Account {
@@ -61,6 +62,7 @@ model Agent {
   objectives String
   parameters String   // stored as JSON string
   skills     String   // stored as JSON string array of IDs
+  databases  String?  // stored as JSON string array of DatabaseConnection IDs
   status     String   @default("active")
   updatedAt  DateTime @updatedAt
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -106,4 +108,22 @@ model SystemLog {
   message   String
   details   String?  // Stored as JSON string
   createdAt DateTime @default(now())
+}
+
+model DatabaseConnection {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  type             String   // 'postgresql' | 'mysql' | 'mssql' | 'mongodb' | 'oracle' | 'sqlite'
+  host             String?
+  port             Int?
+  database         String?
+  username         String?
+  password         String?
+  connectionString String?
+  ssl              Boolean  @default(false)
+  readOnly         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

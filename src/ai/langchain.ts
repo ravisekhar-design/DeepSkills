@@ -1,6 +1,8 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatGroq } from "@langchain/groq";
+import { ChatMistralAI } from "@langchain/mistralai";
 import { injectDynamicKeys } from '@/lib/keys-injector';
 
 /**
@@ -33,6 +35,22 @@ export async function getLangChainModel(modelId?: string) {
       });
     }
     console.warn(`[LangChain] Anthropic key not found for model "${id}", falling back to Google GenAI.`);
+  }
+
+  if (id.startsWith('groq/') || id.startsWith('llama') || id.startsWith('mixtral')) {
+    if (process.env.GROQ_API_KEY) {
+      const model = id.replace('groq/', '');
+      return new ChatGroq({ model, apiKey: process.env.GROQ_API_KEY });
+    }
+    console.warn(`[LangChain] Groq key not found for model "${id}", falling back to Google GenAI.`);
+  }
+
+  if (id.startsWith('mistral/') || id.includes('mistral') || id.includes('mixtral-8x22b')) {
+    if (process.env.MISTRAL_API_KEY) {
+      const model = id.replace('mistral/', '');
+      return new ChatMistralAI({ model, apiKey: process.env.MISTRAL_API_KEY });
+    }
+    console.warn(`[LangChain] Mistral key not found for model "${id}", falling back to Google GenAI.`);
   }
 
   // Default / fallback: Google GenAI

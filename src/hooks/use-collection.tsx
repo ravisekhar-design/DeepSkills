@@ -7,7 +7,7 @@ export type DocumentData = any;
 // Mock Query to avoid breaking downstream parameters
 export type Query<T> = any;
 
-export function useCollection<T = DocumentData>(query: Query<T> | null, mockKey: 'agents' | 'skills' = 'agents') {
+export function useCollection<T = DocumentData>(query: Query<T> | null, mockKey: 'agents' | 'skills' | 'databases' = 'agents') {
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);

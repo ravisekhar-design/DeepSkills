@@ -29,6 +29,7 @@ export async function GET(request: Request) {
                 objectives: (() => { try { return JSON.parse(a.objectives); } catch { return []; } })(),
                 parameters: (() => { try { return JSON.parse(a.parameters); } catch { return {}; } })(),
                 skills: (() => { try { return JSON.parse(a.skills); } catch { return []; } })(),
+                databases: (() => { try { return JSON.parse((a as any).databases || '[]'); } catch { return []; } })(),
                 status: a.status,
                 updatedAt: a.updatedAt.getTime(),
             }));
@@ -55,6 +56,22 @@ export async function GET(request: Request) {
             } else {
                 data = null;
             }
+        } else if (key === 'nexus_databases') {
+            const conns = await (prisma as any).databaseConnection.findMany({ where: { userId } });
+            data = conns.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                type: c.type,
+                host: c.host,
+                port: c.port,
+                database: c.database,
+                username: c.username,
+                password: c.password ? '••••••••' : '',
+                connectionString: c.connectionString ? '••••••••' : '',
+                ssl: c.ssl,
+                readOnly: c.readOnly,
+                createdAt: c.createdAt.getTime(),
+            }));
         } else if (key === 'nexus_chats') {
             const chats = await prisma.chatThread.findMany({ where: { userId } });
             data = chats.map((c: any) => ({
@@ -96,6 +113,7 @@ export async function POST(request: Request) {
                             objectives: Array.isArray(a.objectives) ? JSON.stringify(a.objectives) : (a.objectives || '[]'),
                             parameters: typeof a.parameters === 'object' ? JSON.stringify(a.parameters) : (a.parameters || '{}'),
                             skills: Array.isArray(a.skills) ? JSON.stringify(a.skills) : (a.skills || '[]'),
+                            databases: Array.isArray(a.databases) ? JSON.stringify(a.databases) : (a.databases || '[]'),
                             status: a.status || 'active',
                         },
                         create: {
@@ -106,6 +124,7 @@ export async function POST(request: Request) {
                             objectives: Array.isArray(a.objectives) ? JSON.stringify(a.objectives) : (a.objectives || '[]'),
                             parameters: typeof a.parameters === 'object' ? JSON.stringify(a.parameters) : (a.parameters || '{}'),
                             skills: Array.isArray(a.skills) ? JSON.stringify(a.skills) : (a.skills || '[]'),
+                            databases: Array.isArray(a.databases) ? JSON.stringify(a.databases) : (a.databases || '[]'),
                             status: a.status || 'active',
                         }
                     }))
@@ -144,6 +163,36 @@ export async function POST(request: Request) {
                 const incomingIds = data.map((s: any) => s.id).filter(Boolean);
                 if (incomingIds.length > 0) {
                     await prisma.skill.deleteMany({ where: { userId, id: { notIn: incomingIds } } });
+                }
+            }
+        } else if (key === 'nexus_databases') {
+            if (Array.isArray(data)) {
+                for (const c of data) {
+                    await (prisma as any).databaseConnection.upsert({
+                        where: { id: c.id || '' },
+                        update: {
+                            name: c.name, type: c.type,
+                            host: c.host || null, port: c.port || null,
+                            database: c.database || null, username: c.username || null,
+                            ...(c.password && !c.password.includes('•') ? { password: c.password } : {}),
+                            ...(c.connectionString && !c.connectionString.includes('•') ? { connectionString: c.connectionString } : {}),
+                            ssl: c.ssl || false, readOnly: c.readOnly !== false,
+                        },
+                        create: {
+                            ...(c.id ? { id: c.id } : {}), userId,
+                            name: c.name, type: c.type,
+                            host: c.host || null, port: c.port || null,
+                            database: c.database || null, username: c.username || null,
+                            password: c.password || null, connectionString: c.connectionString || null,
+                            ssl: c.ssl || false, readOnly: c.readOnly !== false,
+                        },
+                    });
+                }
+                const incomingIds = data.map((c: any) => c.id).filter(Boolean);
+                if (incomingIds.length > 0) {
+                    await (prisma as any).databaseConnection.deleteMany({ where: { userId, id: { notIn: incomingIds } } });
+                } else if (data.length === 0) {
+                    await (prisma as any).databaseConnection.deleteMany({ where: { userId } });
                 }
             }
         } else if (key === 'nexus_settings') {

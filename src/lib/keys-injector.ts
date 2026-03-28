@@ -30,4 +30,6 @@ export async function injectDynamicKeys() {
   if (apiKeys.anthropic && apiKeys.anthropic.trim()) process.env.ANTHROPIC_API_KEY = apiKeys.anthropic;
   if (apiKeys.aws_access_key_id && apiKeys.aws_access_key_id.trim()) process.env.AWS_ACCESS_KEY_ID = apiKeys.aws_access_key_id;
   if (apiKeys.aws_secret_access_key && apiKeys.aws_secret_access_key.trim()) process.env.AWS_SECRET_ACCESS_KEY = apiKeys.aws_secret_access_key;
+  if (apiKeys.groq && apiKeys.groq.trim()) process.env.GROQ_API_KEY = apiKeys.groq;
+  if (apiKeys.mistral && apiKeys.mistral.trim()) process.env.MISTRAL_API_KEY = apiKeys.mistral;
 }

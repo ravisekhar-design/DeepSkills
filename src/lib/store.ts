@@ -21,8 +21,26 @@ export interface Agent {
   objectives: string[];
   parameters: Record<string, any>;
   skills: string[]; // Skill IDs
+  databases?: string[]; // DatabaseConnection IDs
   status: 'active' | 'inactive';
   userId?: string;
+  updatedAt?: any;
+}
+
+export interface DatabaseConnection {
+  id: string;
+  name: string;
+  type: 'postgresql' | 'mysql' | 'mssql' | 'mongodb' | 'oracle' | 'sqlite';
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionString?: string;
+  ssl?: boolean;
+  readOnly?: boolean;
+  userId?: string;
+  createdAt?: any;
   updatedAt?: any;
 }
 
@@ -37,6 +55,8 @@ export interface SystemSettings {
     openai: boolean;
     anthropic: boolean;
     aws: boolean;
+    groq: boolean;
+    mistral: boolean;
   };
   globalKillSwitch: boolean;
   apiKeys?: {
@@ -45,6 +65,8 @@ export interface SystemSettings {
     anthropic?: string;
     aws_access_key_id?: string;
     aws_secret_access_key?: string;
+    groq?: string;
+    mistral?: string;
   };
 }
 
@@ -59,6 +81,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     openai: false,
     anthropic: false,
     aws: false,
+    groq: false,
+    mistral: false,
   },
   globalKillSwitch: false,
   apiKeys: {},
@@ -272,4 +296,36 @@ export async function getChat(userId: string, agentId: string): Promise<ChatThre
 
   const thread = chats.find((c: any) => c.agentId === agentId && c.userId === userId);
   return thread || null;
+}
+
+export async function saveDatabase(conn: DatabaseConnection) {
+  const key = `nexus_databases`;
+  const res = await fetch(`/api/store?key=${key}`);
+  const { data: connections } = await res.json();
+  const existing = connections.findIndex((c: any) => c.id === conn.id);
+  const newConn = { ...conn };
+  if (existing >= 0) {
+    connections[existing] = { ...connections[existing], ...newConn };
+  } else {
+    connections.push(newConn);
+  }
+  await fetch('/api/store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, data: connections }),
+  });
+  window.dispatchEvent(new Event('nexus-local-update'));
+}
+
+export async function deleteDatabase(connId: string) {
+  const key = `nexus_databases`;
+  const res = await fetch(`/api/store?key=${key}`);
+  const { data: connections } = await res.json();
+  const filtered = connections.filter((c: any) => c.id !== connId);
+  await fetch('/api/store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, data: filtered }),
+  });
+  window.dispatchEvent(new Event('nexus-local-update'));
 }

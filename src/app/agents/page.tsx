@@ -2,10 +2,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings } from "@/lib/store";
+import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings, DatabaseConnection } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn } from "lucide-react";
+import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +30,7 @@ export default function AgentsPage() {
 
   const { data: agents = [] } = useCollection<Agent>(null, 'agents');
   const { data: customSkills = [] } = useCollection<Skill>(null, 'skills');
+  const { data: dbConnections = [] } = useCollection<DatabaseConnection>(null, 'databases');
   const { data: settings } = useDoc<SystemSettings>(null);
 
   const availableSkills = useMemo(() => {
@@ -54,6 +55,7 @@ export default function AgentsPage() {
     topP: 0.9,
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedDatabases, setSelectedDatabases] = useState<string[]>([]);
 
 
   const handleGeneratePersona = async () => {
@@ -95,6 +97,7 @@ export default function AgentsPage() {
       objectives: objectives.split("\n").filter(o => o.trim()),
       parameters,
       skills: selectedSkills,
+      databases: selectedDatabases,
       status: editingAgent ? editingAgent.status : 'active',
     };
 
@@ -114,6 +117,7 @@ export default function AgentsPage() {
     setObjectives(agent.objectives.join("\n"));
     setParameters(agent.parameters as any);
     setSelectedSkills(agent.skills || []);
+    setSelectedDatabases(agent.databases || []);
     setIsNewAgentOpen(true);
   };
 
@@ -151,6 +155,7 @@ export default function AgentsPage() {
       topP: 0.9,
     });
     setSelectedSkills([]);
+    setSelectedDatabases([]);
   };
 
   if (authLoading) {
@@ -204,10 +209,14 @@ export default function AgentsPage() {
             </DialogHeader>
 
             <Tabs defaultValue="identity" className="w-full">
-              <TabsList className="w-full justify-start rounded-none border-b bg-sidebar/20 px-6 h-12">
-                <TabsTrigger value="identity" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent">Persona & Goals</TabsTrigger>
-                <TabsTrigger value="parameters" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent">Cognitive Settings</TabsTrigger>
-                <TabsTrigger value="skills" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent">Skill Pipeline</TabsTrigger>
+              <TabsList className="w-full justify-start rounded-none border-b bg-sidebar/20 px-6 h-12 overflow-x-auto">
+                <TabsTrigger value="identity" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">Persona & Goals</TabsTrigger>
+                <TabsTrigger value="parameters" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">Cognitive Settings</TabsTrigger>
+                <TabsTrigger value="skills" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">Skill Pipeline</TabsTrigger>
+                <TabsTrigger value="datasources" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
+                  <Database className="size-3 mr-1.5 inline" />Data Sources
+                  {selectedDatabases.length > 0 && <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{selectedDatabases.length}</span>}
+                </TabsTrigger>
               </TabsList>
 
               <div className="p-6 h-[60vh] overflow-hidden">
@@ -341,6 +350,41 @@ export default function AgentsPage() {
                       </div>
                     </ScrollArea>
                   </div>
+                </TabsContent>
+
+                <TabsContent value="datasources" className="mt-0 h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold">Connected Databases</p>
+                      <p className="text-xs text-muted-foreground">Select which databases this agent can query during chat.</p>
+                    </div>
+                    <Badge variant="outline" className="text-accent border-accent/30 text-[10px]">{selectedDatabases.length} selected</Badge>
+                  </div>
+                  {dbConnections.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                      <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
+                      <p className="text-sm font-bold mb-1">No database connections</p>
+                      <p className="text-xs text-muted-foreground">Add connections in the <strong>Databases</strong> page first.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {dbConnections.map((conn: DatabaseConnection) => (
+                        <div
+                          key={conn.id}
+                          className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedDatabases.includes(conn.id) ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
+                          onClick={() => setSelectedDatabases(prev => prev.includes(conn.id) ? prev.filter(id => id !== conn.id) : [...prev, conn.id])}
+                        >
+                          <Checkbox checked={selectedDatabases.includes(conn.id)} onCheckedChange={() => setSelectedDatabases(prev => prev.includes(conn.id) ? prev.filter(id => id !== conn.id) : [...prev, conn.id])} />
+                          <Database className="size-4 text-accent shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold truncate">{conn.name}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
+                          </div>
+                          {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500">Read-only</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </TabsContent>
               </div>
             </Tabs>
