@@ -2,12 +2,14 @@
 
 import { useState, useMemo } from "react";
 import { saveSkill, deleteSkill, Skill, DEFAULT_SKILLS, SystemSettings } from "@/lib/store";
+import { generateSkillCode, generateSkillManifest } from "@/lib/code-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Zap, Search, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, Edit, Shield } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Zap, Search, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, Edit, Shield, Code2, Copy, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +49,13 @@ export default function SkillsPage() {
     category: "Utility" as Skill['category'],
     inputs: "",
   });
+
+  // Code viewer/editor state
+  const [viewCodeSkill, setViewCodeSkill] = useState<Skill | null>(null);
+  const [codeViewTab, setCodeViewTab] = useState<'manifest' | 'implementation'>('implementation');
+  const [editableCode, setEditableCode] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [codeEditing, setCodeEditing] = useState(false);
 
   const skills = useMemo(() => {
     const customMap = new Map(customSkills.map(s => [s.id, s]));
@@ -107,6 +116,7 @@ export default function SkillsPage() {
       inputs: newSkill.inputs.split(",").map(i => i.trim()).filter(i => i),
       enabled: editingSkill ? editingSkill.enabled : true,
       isCustom: true,
+      code: editingSkill?.code,
     };
 
     saveSkill(skill);
@@ -130,6 +140,28 @@ export default function SkillsPage() {
     setEditingSkill(null);
     setNewSkill({ name: "", description: "", category: "Utility", inputs: "" });
     setSeedIdea("");
+  };
+
+  const openCodeViewer = (skill: Skill) => {
+    setViewCodeSkill(skill);
+    setEditableCode(generateSkillCode(skill));
+    setCodeViewTab('implementation');
+    setCodeEditing(false);
+  };
+
+  const handleSaveCode = async () => {
+    if (!viewCodeSkill) return;
+    const updated = { ...viewCodeSkill, code: editableCode };
+    await saveSkill(updated);
+    setViewCodeSkill(updated);
+    setCodeEditing(false);
+    toast({ title: "Code Saved", description: `${viewCodeSkill.name} implementation updated.` });
+  };
+
+  const handleCopyCode = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
   };
 
   const handleDeleteSkill = (id: string) => {
@@ -287,6 +319,9 @@ export default function SkillsPage() {
                     <Icon className="size-6" />
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity" title="View / Edit Code" onClick={() => openCodeViewer(skill)}>
+                      <Code2 className="size-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleEditSkill(skill)}>
                       <Edit className="size-4" />
                     </Button>
@@ -338,6 +373,100 @@ export default function SkillsPage() {
           );
         })}
       </div>
+
+      {/* ── Skill Code Viewer / Editor ── */}
+      {viewCodeSkill && (
+        <Dialog open={!!viewCodeSkill} onOpenChange={(open) => { if (!open) { setViewCodeSkill(null); setCodeEditing(false); } }}>
+          <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 overflow-hidden border-accent/20 h-[90vh] flex flex-col">
+            <DialogHeader className="p-4 pb-0 shrink-0">
+              <DialogTitle className="text-lg flex items-center gap-2">
+                <Code2 className="size-5 text-accent" />
+                {viewCodeSkill.name}
+                {viewCodeSkill.isCustom && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-mono uppercase tracking-widest">Custom</span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+
+            {/* Tabs */}
+            <div className="flex gap-1 px-4 pt-3 border-b border-border shrink-0">
+              {(['implementation', 'manifest'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setCodeViewTab(t)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-t-lg whitespace-nowrap transition-colors capitalize ${codeViewTab === t ? 'bg-accent/20 text-accent border-b-2 border-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {t === 'implementation' ? 'Implementation (TypeScript)' : 'SKILL.md'}
+                </button>
+              ))}
+            </div>
+
+            {/* Code area */}
+            <div className="flex-1 overflow-hidden relative">
+              <div className="absolute top-3 right-3 z-10 flex gap-2">
+                {codeViewTab === 'implementation' && viewCodeSkill.isCustom && !codeEditing && (
+                  <Button variant="ghost" size="sm" className="h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border" onClick={() => setCodeEditing(true)}>
+                    <Edit className="size-3" /> Edit
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border"
+                  onClick={() => handleCopyCode(codeViewTab === 'implementation' ? editableCode : generateSkillManifest(viewCodeSkill))}
+                >
+                  {codeCopied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                  {codeCopied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+
+              {codeViewTab === 'implementation' ? (
+                codeEditing ? (
+                  <textarea
+                    className="w-full h-full p-4 pt-12 text-[12px] leading-relaxed font-mono bg-background/50 text-foreground/90 resize-none focus:outline-none border-0"
+                    value={editableCode}
+                    onChange={(e) => setEditableCode(e.target.value)}
+                    spellCheck={false}
+                  />
+                ) : (
+                  <ScrollArea className="h-full">
+                    <pre className="p-4 pt-10 text-[12px] leading-relaxed font-mono text-foreground/90 whitespace-pre overflow-x-auto">
+                      <code>{editableCode}</code>
+                    </pre>
+                  </ScrollArea>
+                )
+              ) : (
+                <ScrollArea className="h-full">
+                  <pre className="p-4 pt-10 text-[12px] leading-relaxed font-mono text-foreground/90 whitespace-pre overflow-x-auto">
+                    <code>{generateSkillManifest(viewCodeSkill)}</code>
+                  </pre>
+                </ScrollArea>
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t border-border bg-sidebar/40 flex justify-between items-center shrink-0">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                {codeViewTab === 'implementation' ? 'LangChain Tool · TypeScript' : 'Skill Manifest · Markdown'}
+              </p>
+              <div className="flex gap-2">
+                {codeEditing && (
+                  <>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setCodeEditing(false); setEditableCode(generateSkillCode(viewCodeSkill)); }}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" className="gradient-copper text-xs h-8" onClick={handleSaveCode}>
+                      Save Code
+                    </Button>
+                  </>
+                )}
+                {!codeEditing && (
+                  <Button variant="ghost" size="sm" onClick={() => setViewCodeSkill(null)} className="text-xs">Close</Button>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

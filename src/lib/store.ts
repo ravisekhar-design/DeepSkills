@@ -11,6 +11,7 @@ export interface Skill {
   inputs: string[];
   enabled: boolean;
   isCustom?: boolean;
+  code?: string; // Custom TypeScript implementation code
   userId?: string;
 }
 

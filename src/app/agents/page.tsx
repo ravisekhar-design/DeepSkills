@@ -3,9 +3,10 @@
 
 import { useState, useMemo } from "react";
 import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings, DatabaseConnection } from "@/lib/store";
+import { generateAgentCode, generateSkillCode, generateSkillManifest } from "@/lib/code-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database } from "lucide-react";
+import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database, Code2, Copy, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,9 @@ export default function AgentsPage() {
   const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [viewCodeAgent, setViewCodeAgent] = useState<Agent | null>(null);
+  const [codeTab, setCodeTab] = useState<'agent' | string>('agent');
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const [roleDesc, setRoleDesc] = useState("");
   const [name, setName] = useState("");
@@ -156,6 +160,12 @@ export default function AgentsPage() {
     });
     setSelectedSkills([]);
     setSelectedDatabases([]);
+  };
+
+  const handleCopyCode = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
   };
 
   if (authLoading) {
@@ -408,6 +418,9 @@ export default function AgentsPage() {
                   {agent.name.charAt(0)}
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button variant="ghost" size="icon" className="size-9 text-muted-foreground hover:text-accent" title="View Code" onClick={() => { setViewCodeAgent(agent); setCodeTab('agent'); }}>
+                    <Code2 className="size-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="size-9 text-muted-foreground hover:text-accent" onClick={() => handleEdit(agent)}>
                     <Edit className="size-5" />
                   </Button>
@@ -452,6 +465,72 @@ export default function AgentsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Code Viewer Dialog ── */}
+      {viewCodeAgent && (() => {
+        const agentSkills = (viewCodeAgent.skills ?? []).map(id => availableSkills.find(s => s.id === id)).filter(Boolean) as Skill[];
+        const tabs = [
+          { key: 'agent', label: 'Agent Code' },
+          ...agentSkills.map(s => ({ key: s.id, label: s.name })),
+        ];
+        const activeCode = codeTab === 'agent'
+          ? generateAgentCode(viewCodeAgent, availableSkills)
+          : (() => {
+              const skill = agentSkills.find(s => s.id === codeTab);
+              return skill ? generateSkillCode(skill) : '';
+            })();
+
+        return (
+          <Dialog open={!!viewCodeAgent} onOpenChange={(open) => { if (!open) setViewCodeAgent(null); }}>
+            <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 overflow-hidden border-accent/20 h-[90vh] flex flex-col">
+              <DialogHeader className="p-4 pb-0 shrink-0">
+                <DialogTitle className="text-lg flex items-center gap-2">
+                  <Code2 className="size-5 text-accent" />
+                  {viewCodeAgent.name} — Source Code
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* Tabs */}
+              <div className="flex gap-1 px-4 pt-3 border-b border-border overflow-x-auto shrink-0">
+                {tabs.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setCodeTab(t.key)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-t-lg whitespace-nowrap transition-colors ${codeTab === t.key ? 'bg-accent/20 text-accent border-b-2 border-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Code area */}
+              <div className="flex-1 overflow-hidden relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-3 right-3 z-10 h-7 px-3 text-xs gap-1.5 bg-background/80 backdrop-blur border border-border"
+                  onClick={() => handleCopyCode(activeCode)}
+                >
+                  {codeCopied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                  {codeCopied ? 'Copied' : 'Copy'}
+                </Button>
+                <ScrollArea className="h-full">
+                  <pre className="p-4 pt-10 text-[12px] leading-relaxed font-mono text-foreground/90 whitespace-pre overflow-x-auto">
+                    <code>{activeCode}</code>
+                  </pre>
+                </ScrollArea>
+              </div>
+
+              <div className="px-4 py-3 border-t border-border bg-sidebar/40 flex justify-between items-center shrink-0">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                  {codeTab === 'agent' ? 'LangGraph ReAct Agent · TypeScript' : 'LangChain Tool · TypeScript'}
+                </p>
+                <Button variant="ghost" size="sm" onClick={() => setViewCodeAgent(null)} className="text-xs">Close</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }
