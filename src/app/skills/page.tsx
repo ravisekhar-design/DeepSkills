@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Zap, Search, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, Edit } from "lucide-react";
+import { Zap, Search, Plus, Trash2, Settings2, BrainCircuit, LineChart, Beaker, Sparkles, Wand2, Loader2, Edit, Shield } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
