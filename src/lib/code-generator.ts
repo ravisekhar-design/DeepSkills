@@ -12,22 +12,29 @@ function toValidIdentifier(name: string): string {
   return /^\d/.test(snake) ? `skill_${snake}` : snake || 'skill';
 }
 
-// Built-in skill implementations
-const BUILTIN_SKILL_CODE: Record<string, string> = {
-  'stock-price': `import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
+/**
+ * Returns the directory-safe folder name for a skill.
+ * e.g. "Stock Price" → "stock_price"
+ */
+function toSkillDirName(name: string): string {
+  return toValidIdentifier(name);
+}
 
-// Skill: Market Oracle
-// Trigger: user asks about stock prices, equity, or market data.
+// Built-in skill implementations — official Deep Agents format
+// tool() from 'langchain', schema via zod
+const BUILTIN_SKILL_CODE: Record<string, string> = {
+  'stock-price': `import * as z from 'zod';
+import { tool } from 'langchain';
+
 export const market_oracle = tool(
   async ({ ticker, timeframe = '1d' }) => {
     // TODO: Replace with a real market data API (e.g. Alpha Vantage, Polygon.io)
     const price = (Math.random() * 200 + 100).toFixed(2);
-    return \`\${ticker} is trading at $\${price} (\${timeframe} window). No anomalies detected.\`;
+    return \`\${ticker} is trading at $\${price} (\${timeframe} window).\`;
   },
   {
     name: 'market_oracle',
-    description: 'Real-time equity pricing and historical volatility analysis.',
+    description: 'Retrieves real-time equity pricing and historical market data. Use when the user asks about stock prices, tickers, or market performance.',
     schema: z.object({
       ticker: z.string().describe('Stock ticker symbol, e.g. AAPL, TSLA, MSFT.'),
       timeframe: z.string().optional().describe('Analysis window, e.g. 1d, 1w, 1m.'),
@@ -35,59 +42,54 @@ export const market_oracle = tool(
   }
 );`,
 
-  'weather': `import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
+  'weather': `import * as z from 'zod';
+import { tool } from 'langchain';
 
-// Skill: Atmospheric Analyst
-// Trigger: user asks about weather, temperature, or atmospheric conditions.
-export const atmospheric_analyst = tool(
+export const weather = tool(
   async ({ location }) => {
     // TODO: Replace with a real weather API (e.g. OpenWeatherMap, WeatherAPI.com)
-    return \`[\${location}] 22°C, pressure 1013 hPa, clear skies. No alerts.\`;
+    return \`[\${location}] 22°C, clear skies.\`;
   },
   {
-    name: 'atmospheric_analyst',
-    description: 'Hyper-local meteorological forecasting and environmental alerts.',
+    name: 'weather',
+    description: 'Retrieves current weather conditions for a location. Use when the user asks about temperature, forecast, or atmospheric conditions.',
     schema: z.object({
-      location: z.string().describe('Target location — city name, region, or coordinates.'),
+      location: z.string().describe('City name, region, or coordinates.'),
     }),
   }
 );`,
 
-  'web-search': `import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
+  'web-search': `import * as z from 'zod';
+import { tool } from 'langchain';
 
-// Skill: Neural Search
-// Trigger: user needs up-to-date information, news, or facts from the web.
-export const neural_search = tool(
+export const web_search = tool(
   async ({ query }) => {
-    // TODO: Replace with a real search API (e.g. Serper, Brave Search, Tavily)
-    return \`Search result for "\${query}": relevant sources found. Review primary sources for full context.\`;
+    // TODO: Replace with a real search API (e.g. Tavily, Serper, Brave Search)
+    return \`Search results for "\${query}": relevant sources found.\`;
   },
   {
-    name: 'neural_search',
-    description: 'Deep-web crawling and semantic index lookup.',
+    name: 'web_search',
+    description: 'Searches the web for up-to-date information. Use when the user needs current facts, news, or information beyond your training data.',
     schema: z.object({
-      query: z.string().describe('Search query string.'),
+      query: z.string().describe('The search query string.'),
     }),
   }
 );`,
 
-  'code-executor': `import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
+  'code-executor': `import * as z from 'zod';
+import { tool } from 'langchain';
 
-// Skill: Script Sandbox
-// Trigger: user asks to execute, run, or evaluate a code snippet.
-export const script_sandbox = tool(
-  async ({ code }) => {
+export const code_executor = tool(
+  async ({ code, language = 'typescript' }) => {
     // TODO: Replace with a real sandbox (e.g. E2B, Daytona, Deno sandbox)
-    return \`Sandbox execution complete for snippet: \${code.substring(0, 60)}...\`;
+    return \`[\${language}] Execution complete for: \${code.substring(0, 60)}...\`;
   },
   {
-    name: 'script_sandbox',
-    description: 'Isolated environment for computational logic execution.',
+    name: 'code_executor',
+    description: 'Executes code in an isolated sandbox environment. Use when the user asks to run, test, or evaluate a code snippet.',
     schema: z.object({
-      code: z.string().describe('The code block to execute in the sandbox.'),
+      code: z.string().describe('The code to execute.'),
+      language: z.string().optional().describe('Programming language, e.g. typescript, python.'),
     }),
   }
 );`,
@@ -95,6 +97,7 @@ export const script_sandbox = tool(
 
 /**
  * Returns the TypeScript implementation for a skill.
+ * Follows the official Deep Agents tool() pattern.
  * Priority: saved custom code → built-in implementation → generated template.
  */
 export function generateSkillCode(skill: Skill): string {
@@ -102,28 +105,32 @@ export function generateSkillCode(skill: Skill): string {
   if (BUILTIN_SKILL_CODE[skill.id]) return BUILTIN_SKILL_CODE[skill.id];
 
   const toolName = toValidIdentifier(skill.name);
-  const params = (skill.inputs ?? [])
-    .map(i => `      ${i}: z.string().describe('${i} value.'),`)
-    .join('\n');
-  const args = (skill.inputs ?? []).join(', ');
+  const inputs = skill.inputs ?? [];
 
-  return `import { tool } from '@langchain/core/tools';
-import { z } from 'zod';
+  const schemaFields = inputs.length > 0
+    ? inputs.map(i => `      ${i}: z.string().describe('The ${i} parameter.'),`).join('\n')
+    : '      // No parameters required';
 
-// Skill: ${skill.name}
-// Category: ${skill.category}
-// Trigger: describe when the agent should invoke this skill.
+  const destructured = inputs.length > 0 ? `{ ${inputs.join(', ')} }` : '_args';
+
+  const returnExpr = inputs.length > 0
+    ? `\`[${skill.name}] called with: \${JSON.stringify({ ${inputs.join(', ')} })}\``
+    : `'[${skill.name}] executed successfully.'`;
+
+  return `import * as z from 'zod';
+import { tool } from 'langchain';
+
 export const ${toolName} = tool(
-  async ({ ${args} }) => {
-    // TODO: implement skill logic for ${skill.name}
-    // Inputs available: ${skill.inputs?.join(', ') || 'none'}
-    return \`[${skill.name}] executed with: \${JSON.stringify({ ${args} })}\`;
+  async (${destructured}) => {
+    // TODO: Implement the ${skill.name} skill logic here.
+    // Refer to SKILL.md for full instructions and parameter details.
+    return ${returnExpr};
   },
   {
     name: '${toolName}',
     description: '${skill.description}',
     schema: z.object({
-${params}
+${schemaFields}
     }),
   }
 );
@@ -132,52 +139,66 @@ ${params}
 
 /**
  * Returns the SKILL.md manifest for a skill.
- * Uses saved custom manifest if present, otherwise generates one.
+ * Follows the official Deep Agents SKILL.md format with YAML frontmatter.
+ * Uses saved custom manifest if present.
  */
 export function generateSkillManifest(skill: Skill): string {
   if ((skill as any).manifest) return (skill as any).manifest;
 
-  const params = skill.inputs && skill.inputs.length > 0
-    ? skill.inputs.map(i => `- \`${i}\` (string, required): describe this parameter`).join('\n')
-    : '_No parameters required._';
+  const toolName = toValidIdentifier(skill.name);
+  const inputs = skill.inputs ?? [];
 
-  return `# ${skill.name}
+  const paramDocs = inputs.length > 0
+    ? inputs.map(i => `- \`${i}\` (string, required): Describe what ${i} represents.`).join('\n')
+    : '_This skill requires no input parameters._';
 
-## Description
+  const descSnippet = skill.description.length > 200
+    ? skill.description.substring(0, 200) + '...'
+    : skill.description;
+
+  return `---
+name: ${skill.name}
+description: ${descSnippet}
+metadata:
+  category: ${skill.category}
+  tool: ${toolName}
+---
+
+## Overview
 ${skill.description}
 
-## Category
-${skill.category}
-
 ## When to Use
-Describe the exact conditions or user phrases that should trigger this skill.
+Invoke this skill when the user's request relates to **${skill.name.toLowerCase()}** or matches phrases like:
+- "${skill.description.split('.')[0].toLowerCase()}"
+- Any request involving ${skill.category.toLowerCase()} tasks
+
+## Instructions
+1. Review the user's message and confirm it matches this skill's purpose.
+2. Extract the required parameters from the user's input.
+3. Call the \`${toolName}\` tool with the resolved parameters.
+4. Return the tool's response directly to the user.
 
 ## Parameters
-${params}
+${paramDocs}
 
 ## Returns
-A string describing the result of the skill execution.
-
-## Progressive Disclosure
-
-### Match
-The agent checks if the user's request aligns with: "${skill.name.toLowerCase()}" or "${skill.description.split('.')[0].toLowerCase()}".
-
-### Read
-If matched, the agent reads this manifest to understand the full skill interface.
-
-### Execute
-The agent calls the tool with the required parameters and returns the result.
+A string containing the result of the ${skill.name} operation.
 
 ## Notes
-- Keep this file under 10 MB
-- Max description length: 1024 characters
-- Follows the Agent Skills specification (agentskills.io)
+- This file must remain under 10 MB.
+- The \`description\` frontmatter field must not exceed 1,024 characters.
+- Supporting files (scripts, references) can be placed alongside this SKILL.md.
 `;
 }
 
 /**
- * Generates the full TypeScript LangGraph ReAct agent code.
+ * Generates the full TypeScript Deep Agent entry point.
+ * Follows the official LangChain Deep Agents JS/TS structure:
+ * - createDeepAgent() from 'deepagents'
+ * - tool() from 'langchain'
+ * - Skills imported from ./skills/<name>/index
+ * - system prompt via the `system` property
+ *
  * Returns agent.code if a custom implementation has been saved.
  */
 export function generateAgentCode(agent: Agent, skills: Skill[]): string {
@@ -187,90 +208,71 @@ export function generateAgentCode(agent: Agent, skills: Skill[]): string {
     .map(id => skills.find(s => s.id === id))
     .filter(Boolean) as Skill[];
 
-  const temp = agent.parameters?.temperature ?? 0.7;
-  const maxTokens = agent.parameters?.maxLength ?? 2048;
+  // Imports: one per skill directory
+  const skillImports = agentSkills.length > 0
+    ? agentSkills
+        .map(s => `import { ${toValidIdentifier(s.name)} } from './skills/${toSkillDirName(s.name)}/index';`)
+        .join('\n')
+    : '// No skills assigned — import skill tools here';
 
-  const imports = agentSkills.length > 0
-    ? agentSkills.map(s => `import { ${toValidIdentifier(s.name)} } from './skills/${toValidIdentifier(s.name)}';`).join('\n')
-    : '// No skills assigned — add skill imports here';
-
+  // tools array entries
   const toolsList = agentSkills.length > 0
     ? agentSkills.map(s => `  ${toValidIdentifier(s.name)},`).join('\n')
-    : '  // add tools here';
+    : '  // add imported tools here';
 
-  const objectives = (agent.objectives ?? [])
-    .map(o => `// - ${o}`)
-    .join('\n');
+  // System prompt from agent persona + objectives
+  const objectives = (agent.objectives ?? []).filter(Boolean);
+  const objectivesBlock = objectives.length > 0
+    ? '\n\nObjectives:\n' + objectives.map(o => `- ${o}`).join('\n')
+    : '';
 
-  const skillPipeline = agentSkills.length > 0
-    ? agentSkills.map(s => `//   [${s.category}] ${s.name}: ${s.description}`).join('\n')
-    : '//   (no skills assigned)';
+  const systemPrompt = (agent.persona + objectivesBlock).replace(/`/g, "'");
+
+  // Skill directory listing comment
+  const skillDirComment = agentSkills.length > 0
+    ? agentSkills
+        .map(s => ` *   skills/${toSkillDirName(s.name)}/  — ${s.description}`)
+        .join('\n')
+    : ' *   (no skills assigned)';
 
   return `/**
  * Agent: ${agent.name}
- * Generated by DeepSkills · LangGraph ReAct · @langchain/langgraph
+ * Generated by DeepSkills — LangChain Deep Agents (JS/TS)
  *
- * Skill pipeline (${agentSkills.length} tool${agentSkills.length === 1 ? '' : 's'}):
-${skillPipeline}
+ * Skills:
+${skillDirComment}
  */
 
-import { createReactAgent } from '@langchain/langgraph/prebuilt';
-import { ChatOpenAI } from '@langchain/openai';
-// Swap model: ChatGoogleGenerativeAI, ChatAnthropic, ChatGroq, ChatMistralAI
-import { HumanMessage, AIMessage } from '@langchain/core/messages';
-${imports}
+import { createDeepAgent } from 'deepagents';
+${skillImports}
 
-// Model configuration
-const model = new ChatOpenAI({
-  model: 'gpt-4o-mini',
-  temperature: ${temp},
-  maxTokens: ${maxTokens},
-});
-
-// Skill tools
-const tools = [
+// Assemble the Deep Agent with skills and system prompt
+export const agent = createDeepAgent({
+  tools: [
 ${toolsList}
-];
-
-// Agent objectives:
-${objectives || '// (none defined)'}
-
-// System persona
-const systemPrompt = \`${agent.persona.replace(/`/g, "'")}\`;
-
-// Assemble the ReAct agent
-export const agent = createReactAgent({
-  llm: model,
-  tools,
-  stateModifier: systemPrompt,
+  ],
+  system: \`${systemPrompt}\`,
 });
 
-// Chat helper
-type Message = { role: 'user' | 'assistant'; content: string };
-
+// Chat helper — invoke the agent with a user message
 export async function chat(
   userMessage: string,
-  history: Message[] = []
+  history: { role: 'user' | 'assistant'; content: string }[] = []
 ): Promise<string> {
   const messages = [
-    ...history.map(m =>
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
-    new HumanMessage(userMessage),
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user' as const, content: userMessage },
   ];
 
   const result = await agent.invoke({ messages });
 
-  const lastAI = [...result.messages]
-    .reverse()
-    .find((m: any) => m._getType?.() === 'ai' || m.constructor?.name === 'AIMessage');
-
-  return typeof lastAI?.content === 'string'
-    ? lastAI.content
-    : JSON.stringify(lastAI?.content ?? '');
+  const last = result.messages[result.messages.length - 1];
+  return typeof last?.content === 'string'
+    ? last.content
+    : JSON.stringify(last?.content ?? '');
 }
 
-// Usage example:
+// Usage:
 // const reply = await chat('Hello, what can you do?');
 // console.log(reply);
 `;
