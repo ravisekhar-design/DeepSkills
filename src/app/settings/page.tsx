@@ -145,7 +145,15 @@ export default function SettingsPage() {
   const { toast } = useToast();
 
   const { data: settingsData, loading } = useDoc<SystemSettings>(null);
-  const settings = settingsData || DEFAULT_SETTINGS;
+  // Deep-merge with defaults so newly added keys (e.g. visualize) are always present
+  // even when older saved settings don't have them yet.
+  const settings: SystemSettings = settingsData ? {
+    ...DEFAULT_SETTINGS,
+    ...settingsData,
+    modelMapping: { ...DEFAULT_SETTINGS.modelMapping, ...settingsData.modelMapping },
+    providers: { ...DEFAULT_SETTINGS.providers, ...settingsData.providers },
+    apiKeys: { ...DEFAULT_SETTINGS.apiKeys, ...settingsData.apiKeys },
+  } : DEFAULT_SETTINGS;
 
   const [envStatus, setEnvStatus] = useState({ google: false, openai: false, anthropic: false, aws: false, groq: false, mistral: false });
   const [envStatusFetched, setEnvStatusFetched] = useState(false);
