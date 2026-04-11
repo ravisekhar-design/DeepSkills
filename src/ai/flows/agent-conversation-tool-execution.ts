@@ -146,11 +146,18 @@ export async function agentConversationToolExecution(
     }
   }
 
+  // ── Model-aware context budgets ──────────────────────────────────────────
+  // Small Groq free-tier models (e.g. llama-3.1-8b-instant) have only 6K TPM.
+  // Medium models (llama-3.3-70b, mixtral) have 12–30K TPM.
+  // Large/cloud models (GPT-4o, Claude, Gemini) have 100K+ TPM.
+  const modelId = (input.preferredModel || '').toLowerCase();
+  const isSmallModel = /8b|7b|8x7b|llama-3\.1-8b|llama3-8b|gemma.*2b|mistral-7b/.test(modelId);
+  const isMediumModel = /70b|mixtral|llama-3\.3|llama-3\.1-70b|gemma.*9b/.test(modelId);
+
+  const FILE_CONTEXT_CHAR_BUDGET = isSmallModel ? 6_000 : isMediumModel ? 16_000 : 30_000;
+  const MAX_HISTORY_MESSAGES    = isSmallModel ? 4     : isMediumModel ? 10      : 20;
+
   // ── System prompt — inject uploaded file context if present ─────────────
-  // Conservative budget: leaves room for chat history + tool schemas.
-  // ~30k chars ≈ ~7.5k tokens. Halved from 80k to prevent overflow on
-  // smaller-context models (e.g. GPT-4 8k, Groq) and long conversations.
-  const FILE_CONTEXT_CHAR_BUDGET = 30_000;
   let fileSection = '';
   if (input.fileContext?.trim()) {
     let payload = input.fileContext;
@@ -169,9 +176,6 @@ ${fileSection}
 IMPORTANT — FORMATTING: When the user asks for raw data (CSV, JSON, code, XML, etc.), wrap it in a fenced Markdown code block with the appropriate language tag (e.g. \`\`\`csv). Never output raw structured data as plain prose.`;
 
   // ── Build history ────────────────────────────────────────────────────────
-  // Cap at last 20 messages to avoid overflowing the model's context window
-  // when conversations grow long. Keeps the most recent context.
-  const MAX_HISTORY_MESSAGES = 20;
   const trimmedHistory = (input.chatHistory || []).slice(-MAX_HISTORY_MESSAGES);
   const historyMessages = trimmedHistory.map(msg =>
     msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)

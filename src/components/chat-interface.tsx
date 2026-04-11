@@ -172,9 +172,22 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         error: error.message || error.toString(),
         stack: error.stack
       });
+
+      const msg: string = error.message || '';
+      let description = "The cognitive engine failed to respond. Check system logs.";
+      if (msg.includes('tokens') && (msg.includes('rate_limit') || error.status === 413)) {
+        const modelMatch = msg.match(/model `([^`]+)`/);
+        const model = modelMatch ? modelMatch[1] : 'this model';
+        description = `Token limit exceeded for ${model}. Switch to a larger model (e.g. Llama 3.3 70B or GPT-4o) in Settings → Task Model Assignments.`;
+      } else if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')) {
+        description = 'AI quota exceeded. Switch to a different model in Settings or try again later.';
+      } else if (msg.includes('401') || msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized')) {
+        description = 'Invalid or missing API key. Check your provider credentials in Settings → API Keys.';
+      }
+
       toast({
         title: "Nexus Link Failure",
-        description: "The cognitive engine failed to respond. Check system logs.",
+        description,
         variant: "destructive"
       });
     } finally {
