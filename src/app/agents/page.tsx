@@ -1,12 +1,12 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
-import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings, DatabaseConnection } from "@/lib/store";
-import { generateAgentCode, generateSkillCode, generateSkillManifest } from "@/lib/code-generator";
+import { useState, useMemo, useEffect } from "react";
+import { saveAgent, deleteAgent, Agent, DEFAULT_SKILLS, Skill, SystemSettings, DatabaseConnection, FileFolder } from "@/lib/store";
+import { generateAgentCode, generateSkillCode } from "@/lib/code-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database, Code2 } from "lucide-react";
+import { Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap, BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn, Database, Code2, FolderOpen } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,15 @@ export default function AgentsPage() {
   const { data: customSkills = [] } = useCollection<Skill>(null, 'skills');
   const { data: dbConnections = [] } = useCollection<DatabaseConnection>(null, 'databases');
   const { data: settings } = useDoc<SystemSettings>(null);
+  const [fileFolders, setFileFolders] = useState<FileFolder[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch('/api/files?type=folders')
+      .then(r => r.json())
+      .then(j => setFileFolders(j.data || []))
+      .catch(() => {});
+  }, [user]);
 
   const availableSkills = useMemo(() => {
     const customMap = new Map(customSkills.map(s => [s.id, s]));
@@ -60,6 +69,7 @@ export default function AgentsPage() {
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedDatabases, setSelectedDatabases] = useState<string[]>([]);
+  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
 
 
   const handleGeneratePersona = async () => {
@@ -102,6 +112,7 @@ export default function AgentsPage() {
       parameters,
       skills: selectedSkills,
       databases: selectedDatabases,
+      fileFolders: selectedFolders,
       status: editingAgent ? editingAgent.status : 'active',
     };
 
@@ -122,6 +133,7 @@ export default function AgentsPage() {
     setParameters(agent.parameters as any);
     setSelectedSkills(agent.skills || []);
     setSelectedDatabases(agent.databases || []);
+    setSelectedFolders(agent.fileFolders || []);
     setIsNewAgentOpen(true);
   };
 
@@ -160,6 +172,7 @@ export default function AgentsPage() {
     });
     setSelectedSkills([]);
     setSelectedDatabases([]);
+    setSelectedFolders([]);
   };
 
   const handleSaveAgentCode = (newCode: string) => {
@@ -228,6 +241,10 @@ export default function AgentsPage() {
                 <TabsTrigger value="datasources" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
                   <Database className="size-3 mr-1.5 inline" />Data Sources
                   {selectedDatabases.length > 0 && <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{selectedDatabases.length}</span>}
+                </TabsTrigger>
+                <TabsTrigger value="files" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
+                  <FolderOpen className="size-3 mr-1.5 inline" />File Storage
+                  {selectedFolders.length > 0 && <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{selectedFolders.length}</span>}
                 </TabsTrigger>
               </TabsList>
 
@@ -393,6 +410,40 @@ export default function AgentsPage() {
                             <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
                           </div>
                           {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500">Read-only</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="files" className="mt-0 h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold">File Storage Folders</p>
+                      <p className="text-xs text-muted-foreground">Select folders whose files this agent can read during chat.</p>
+                    </div>
+                    <Badge variant="outline" className="text-accent border-accent/30 text-[10px]">{selectedFolders.length} selected</Badge>
+                  </div>
+                  {fileFolders.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                      <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
+                      <p className="text-sm font-bold mb-1">No file folders</p>
+                      <p className="text-xs text-muted-foreground">Create folders and upload files in the <strong>Databases → File Storage</strong> tab first.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {fileFolders.map((folder: FileFolder) => (
+                        <div
+                          key={folder.id}
+                          className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedFolders.includes(folder.id) ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
+                          onClick={() => setSelectedFolders(prev => prev.includes(folder.id) ? prev.filter(id => id !== folder.id) : [...prev, folder.id])}
+                        >
+                          <Checkbox checked={selectedFolders.includes(folder.id)} onCheckedChange={() => setSelectedFolders(prev => prev.includes(folder.id) ? prev.filter(id => id !== folder.id) : [...prev, folder.id])} />
+                          <FolderOpen className="size-4 text-accent shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold truncate">{folder.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}</p>
+                          </div>
                         </div>
                       ))}
                     </div>

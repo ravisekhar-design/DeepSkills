@@ -1,0 +1,183 @@
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
+
+export const dynamic = 'force-dynamic';
+
+const MAX_FILE_SIZE = 512 * 1024; // 512 KB text limit per file
+
+// ── GET ──────────────────────────────────────────────────────────────────────
+// ?type=folders                      → list all user folders (with file counts)
+// ?type=files&folderId=xxx           → list files in a folder (no content)
+// ?type=content&fileId=xxx           → fetch full content of a single file
+// ?type=folder-context&folderIds=a,b → fetch all file contents for agent context
+export async function GET(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = (session.user as any).id;
+
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+
+    if (type === 'folders') {
+      const folders = await (prisma as any).fileFolder.findMany({
+        where: { userId },
+        include: { _count: { select: { files: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      return NextResponse.json({
+        data: folders.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          fileCount: f._count.files,
+          createdAt: f.createdAt.getTime(),
+          updatedAt: f.updatedAt.getTime(),
+        })),
+      });
+    }
+
+    if (type === 'files') {
+      const folderId = searchParams.get('folderId');
+      if (!folderId) return NextResponse.json({ error: 'folderId required' }, { status: 400 });
+
+      // Verify folder belongs to user
+      const folder = await (prisma as any).fileFolder.findFirst({ where: { id: folderId, userId } });
+      if (!folder) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+      const files = await (prisma as any).fileRecord.findMany({
+        where: { folderId, userId },
+        select: { id: true, name: true, mimeType: true, size: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      return NextResponse.json({
+        data: files.map((f: any) => ({ ...f, createdAt: f.createdAt.getTime() })),
+      });
+    }
+
+    if (type === 'content') {
+      const fileId = searchParams.get('fileId');
+      if (!fileId) return NextResponse.json({ error: 'fileId required' }, { status: 400 });
+      const file = await (prisma as any).fileRecord.findFirst({ where: { id: fileId, userId } });
+      if (!file) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json({ data: { id: file.id, name: file.name, content: file.content, mimeType: file.mimeType } });
+    }
+
+    if (type === 'folder-context') {
+      const folderIds = (searchParams.get('folderIds') || '').split(',').filter(Boolean);
+      if (!folderIds.length) return NextResponse.json({ data: '' });
+
+      // Verify all folders belong to user
+      const folders = await (prisma as any).fileFolder.findMany({
+        where: { id: { in: folderIds }, userId },
+        include: { files: { select: { id: true, name: true, content: true, mimeType: true } } },
+      });
+
+      const contextBlocks: string[] = [];
+      for (const folder of folders) {
+        for (const file of folder.files) {
+          contextBlocks.push(
+            `--- File: ${file.name} (Folder: ${folder.name}) ---\n${file.content}\n---`
+          );
+        }
+      }
+      return NextResponse.json({ data: contextBlocks.join('\n\n') });
+    }
+
+    return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+  } catch (error: any) {
+    console.error('[Files GET]', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// ── POST ─────────────────────────────────────────────────────────────────────
+// { type: 'folder', name }                                      → create folder
+// { type: 'file', folderId, name, content, mimeType }          → upload file
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = (session.user as any).id;
+
+    const body = await request.json();
+
+    if (body.type === 'folder') {
+      const { name } = body;
+      if (!name?.trim()) return NextResponse.json({ error: 'Folder name required' }, { status: 400 });
+      const folder = await (prisma as any).fileFolder.create({
+        data: { userId, name: name.trim() },
+      });
+      return NextResponse.json({ data: { id: folder.id, name: folder.name, fileCount: 0, createdAt: folder.createdAt.getTime() } });
+    }
+
+    if (body.type === 'file') {
+      const { folderId, name, content, mimeType } = body;
+      if (!folderId || !name || content === undefined) {
+        return NextResponse.json({ error: 'folderId, name, and content are required' }, { status: 400 });
+      }
+      // Verify folder belongs to user
+      const folder = await (prisma as any).fileFolder.findFirst({ where: { id: folderId, userId } });
+      if (!folder) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
+
+      const byteSize = Buffer.byteLength(content, 'utf8');
+      if (byteSize > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: `File too large (max 512 KB). This file is ${(byteSize / 1024).toFixed(0)} KB.` }, { status: 413 });
+      }
+
+      const file = await (prisma as any).fileRecord.create({
+        data: {
+          userId,
+          folderId,
+          name: name.trim(),
+          mimeType: mimeType || 'text/plain',
+          size: byteSize,
+          content,
+        },
+      });
+      return NextResponse.json({ data: { id: file.id, name: file.name, mimeType: file.mimeType, size: file.size, createdAt: file.createdAt.getTime() } });
+    }
+
+    return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+  } catch (error: any) {
+    console.error('[Files POST]', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// ── DELETE ────────────────────────────────────────────────────────────────────
+// ?type=folder&id=xxx  → delete folder + all its files
+// ?type=file&id=xxx    → delete single file
+export async function DELETE(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = (session.user as any).id;
+
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    if (type === 'folder') {
+      const folder = await (prisma as any).fileFolder.findFirst({ where: { id, userId } });
+      if (!folder) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      // Cascade deletes files too via schema relation
+      await (prisma as any).fileFolder.delete({ where: { id } });
+      return NextResponse.json({ success: true });
+    }
+
+    if (type === 'file') {
+      const file = await (prisma as any).fileRecord.findFirst({ where: { id, userId } });
+      if (!file) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await (prisma as any).fileRecord.delete({ where: { id } });
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+  } catch (error: any) {
+    console.error('[Files DELETE]', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

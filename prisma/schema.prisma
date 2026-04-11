@@ -25,6 +25,8 @@ model User {
   settings            SystemSettings?
   chatThreads         ChatThread[]
   databaseConnections DatabaseConnection[]
+  fileFolders         FileFolder[]
+  fileRecords         FileRecord[]
 }
 
 model Account {
@@ -55,17 +57,18 @@ model Session {
 }
 
 model Agent {
-  id         String   @id @default(cuid())
-  userId     String
-  name       String
-  persona    String
-  objectives String
-  parameters String   // stored as JSON string
-  skills     String   // stored as JSON string array of IDs
-  databases  String?  // stored as JSON string array of DatabaseConnection IDs
-  status     String   @default("active")
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  persona     String
+  objectives  String
+  parameters  String   // stored as JSON string
+  skills      String   // stored as JSON string array of IDs
+  databases   String?  // stored as JSON string array of DatabaseConnection IDs
+  fileFolders String?  // stored as JSON string array of FileFolder IDs
+  status      String   @default("active")
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Skill {
@@ -126,4 +129,27 @@ model DatabaseConnection {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FileFolder {
+  id        String       @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files     FileRecord[]
+}
+
+model FileRecord {
+  id        String     @id @default(cuid())
+  userId    String
+  folderId  String
+  name      String
+  mimeType  String     @default("text/plain")
+  size      Int        @default(0)
+  content   String     @db.Text
+  createdAt DateTime   @default(now())
+  folder    FileFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

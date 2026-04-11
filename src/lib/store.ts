@@ -24,10 +24,31 @@ export interface Agent {
   parameters: Record<string, any>;
   skills: string[]; // Skill IDs
   databases?: string[]; // DatabaseConnection IDs
+  fileFolders?: string[]; // FileFolder IDs
   status: 'active' | 'inactive';
   userId?: string;
   updatedAt?: any;
   code?: string;
+}
+
+export interface FileFolder {
+  id: string;
+  name: string;
+  userId?: string;
+  createdAt?: any;
+  updatedAt?: any;
+  fileCount?: number;
+}
+
+export interface FileRecord {
+  id: string;
+  folderId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  content?: string;
+  userId?: string;
+  createdAt?: any;
 }
 
 export interface DatabaseConnection {

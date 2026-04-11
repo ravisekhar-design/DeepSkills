@@ -130,6 +130,18 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         .filter(m => m.role === 'user' || m.role === 'model')
         .map(m => ({ role: m.role, content: m.content }));
 
+      // Fetch file context from folders assigned to this agent
+      let fileContext = '';
+      if (agent.fileFolders && agent.fileFolders.length > 0) {
+        try {
+          const res = await fetch(`/api/files?type=folder-context&folderIds=${agent.fileFolders.join(',')}`);
+          const json = await res.json();
+          fileContext = json.data || '';
+        } catch {
+          // Non-fatal — agent proceeds without file context
+        }
+      }
+
       const result = await agentConversationToolExecution({
         query: userQuery,
         chatHistory: history,
@@ -137,6 +149,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         preferredModel: settings.modelMapping.conversation,
         databaseConnections: agent.databases || [],
         userId: user?.uid,
+        fileContext: fileContext || undefined,
       });
 
       const botMessage: Message = {
