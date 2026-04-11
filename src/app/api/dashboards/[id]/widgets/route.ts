@@ -6,13 +6,14 @@ import { authOptions } from '../../../auth/[...nextauth]/route';
 export const dynamic = 'force-dynamic';
 
 // POST /api/dashboards/[id]/widgets — add a widget to a dashboard
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const userId = (session.user as any).id;
 
-    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id: params.id, userId } });
+    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
     if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const body = await request.json();
@@ -24,7 +25,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const widget = await (prisma as any).dashboardWidget.create({
       data: {
-        dashboardId: params.id,
+        dashboardId: id,
         title,
         chartType,
         chartConfig: typeof chartConfig === 'string' ? chartConfig : JSON.stringify(chartConfig),
@@ -38,7 +39,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     });
 
     // Touch the dashboard's updatedAt
-    await (prisma as any).dashboard.update({ where: { id: params.id }, data: { updatedAt: new Date() } });
+    await (prisma as any).dashboard.update({ where: { id }, data: { updatedAt: new Date() } });
 
     return NextResponse.json({
       data: {
@@ -62,13 +63,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
 }
 
 // DELETE /api/dashboards/[id]/widgets?widgetId=xxx — remove a widget
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const userId = (session.user as any).id;
 
-    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id: params.id, userId } });
+    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
     if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const { searchParams } = new URL(request.url);
