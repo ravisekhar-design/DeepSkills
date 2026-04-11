@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Database, Plus, Trash2, Loader2, CheckCircle2, XCircle, Edit, Server, Shield, HardDrive, TestTube2, FolderOpen, FolderPlus, Upload, File, ChevronLeft, FileText, FileCode, Table } from "lucide-react";
+import { Database, Plus, Trash2, Loader2, CheckCircle2, XCircle, Edit, Server, Shield, HardDrive, TestTube2, FolderOpen, FolderPlus, Upload, ChevronLeft, FileText, FileCode, Table, Eye } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,6 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { saveDatabase, deleteDatabase, DatabaseConnection, FileFolder, FileRecord } from "@/lib/store";
 import { useUser } from "@/hooks/use-user";
@@ -71,6 +70,9 @@ export default function DatabasesPage() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [viewingFile, setViewingFile] = useState<{ id: string; name: string; content: string; mimeType: string; size: number } | null>(null);
+  const [viewerLoading, setViewerLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const update = (patch: Partial<typeof form>) => setForm(prev => ({ ...prev, ...patch }));
@@ -138,40 +140,91 @@ export default function DatabasesPage() {
     }
   };
 
-  // ── Upload file ─────────────────────────────────────────────────────────
+  // ── Upload file(s) ──────────────────────────────────────────────────────
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !openFolder) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !openFolder) return;
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     setUploading(true);
-    try {
-      const content = await file.text();
-      const res = await fetch('/api/files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'file',
-          folderId: openFolder.id,
-          name: file.name,
-          content,
-          mimeType: file.type || 'text/plain',
-        }),
+    setUploadProgress({ done: 0, total: files.length });
+
+    let succeeded = 0;
+    const failures: string[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const content = await file.text();
+        const res = await fetch('/api/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'file',
+            folderId: openFolder.id,
+            name: file.name,
+            content,
+            mimeType: file.type || 'text/plain',
+          }),
+        });
+        const json = await res.json();
+        if (json.data) {
+          setFolderFiles(prev => [...prev, json.data]);
+          succeeded++;
+        } else {
+          failures.push(`${file.name}: ${json.error || 'unknown error'}`);
+        }
+      } catch (err: any) {
+        failures.push(`${file.name}: ${err.message}`);
+      }
+      setUploadProgress({ done: i + 1, total: files.length });
+    }
+
+    if (succeeded > 0) {
+      setFolders(prev => prev.map(f =>
+        f.id === openFolder.id ? { ...f, fileCount: (f.fileCount ?? 0) + succeeded } : f
+      ));
+      toast({
+        title: `${succeeded} file${succeeded !== 1 ? 's' : ''} uploaded`,
+        description: `Added to ${openFolder.name}.`,
       });
+    }
+    if (failures.length) {
+      toast({
+        title: `${failures.length} upload${failures.length !== 1 ? 's' : ''} failed`,
+        description: failures.slice(0, 3).join('\n') + (failures.length > 3 ? `\n…and ${failures.length - 3} more` : ''),
+        variant: 'destructive',
+      });
+    }
+
+    setUploading(false);
+    setUploadProgress(null);
+  };
+
+  // ── View file ───────────────────────────────────────────────────────────
+  const handleViewFile = async (file: FileRecord) => {
+    setViewerLoading(true);
+    setViewingFile({ id: file.id, name: file.name, content: '', mimeType: file.mimeType, size: file.size });
+    try {
+      const res = await fetch(`/api/files?type=content&fileId=${file.id}`);
       const json = await res.json();
       if (json.data) {
-        setFolderFiles(prev => [...prev, json.data]);
-        setFolders(prev => prev.map(f =>
-          f.id === openFolder.id ? { ...f, fileCount: (f.fileCount ?? 0) + 1 } : f
-        ));
-        toast({ title: 'File Uploaded', description: `"${file.name}" added to ${openFolder.name}.` });
+        setViewingFile({
+          id: json.data.id,
+          name: json.data.name,
+          content: json.data.content ?? '',
+          mimeType: json.data.mimeType || file.mimeType,
+          size: file.size,
+        });
       } else {
-        toast({ title: 'Upload Failed', description: json.error, variant: 'destructive' });
+        toast({ title: 'Load Failed', description: json.error, variant: 'destructive' });
+        setViewingFile(null);
       }
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      setViewingFile(null);
     }
-    setUploading(false);
+    setViewerLoading(false);
   };
 
   // ── Delete file ─────────────────────────────────────────────────────────
@@ -460,7 +513,7 @@ export default function DatabasesPage() {
         {/* ── File Storage tab ───────────────────────────────────────────── */}
         <TabsContent value="files" className="space-y-6">
           {/* hidden file input */}
-          <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} className="hidden" onChange={handleFileUpload} />
+          <input ref={fileInputRef} type="file" multiple accept={ACCEPTED_TYPES} className="hidden" onChange={handleFileUpload} />
 
           {openFolder ? (
             /* ── Folder view ──────────────────────────────────────────── */
@@ -484,7 +537,11 @@ export default function DatabasesPage() {
                   disabled={uploading}
                 >
                   {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-                  {uploading ? 'Uploading...' : 'Upload File'}
+                  {uploading
+                    ? uploadProgress
+                      ? `Uploading ${uploadProgress.done}/${uploadProgress.total}...`
+                      : 'Uploading...'
+                    : 'Upload Files'}
                 </Button>
               </div>
 
@@ -500,13 +557,17 @@ export default function DatabasesPage() {
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="size-12 mb-4 text-muted-foreground opacity-20" />
-                  <p className="text-sm font-bold mb-1">Drop files here or click to upload</p>
-                  <p className="text-xs text-muted-foreground">Text, CSV, JSON, code files up to 512 KB</p>
+                  <p className="text-sm font-bold mb-1">Click to upload one or more files</p>
+                  <p className="text-xs text-muted-foreground">Text, CSV, JSON, code files up to 512 KB each</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {folderFiles.map(file => (
-                    <div key={file.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/10 border border-border hover:border-accent/30 transition-colors group">
+                    <div
+                      key={file.id}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-secondary/10 border border-border hover:border-accent/30 transition-colors group cursor-pointer"
+                      onClick={() => handleViewFile(file)}
+                    >
                       {fileIcon(file.name)}
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate">{file.name}</p>
@@ -517,8 +578,17 @@ export default function DatabasesPage() {
                       </Badge>
                       <Button
                         variant="ghost" size="icon"
+                        className="size-7 text-muted-foreground hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={e => { e.stopPropagation(); handleViewFile(file); }}
+                        title="View contents"
+                      >
+                        <Eye className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="icon"
                         className="size-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => handleDeleteFile(file)}
+                        onClick={e => { e.stopPropagation(); handleDeleteFile(file); }}
+                        title="Delete"
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
@@ -610,6 +680,38 @@ export default function DatabasesPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* ── File Viewer Dialog ─────────────────────────────────────────── */}
+      <Dialog open={!!viewingFile} onOpenChange={v => { if (!v) setViewingFile(null); }}>
+        <DialogContent className="glass-panel border-accent/20 sm:max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 pr-8">
+              {viewingFile && fileIcon(viewingFile.name)}
+              <span className="truncate">{viewingFile?.name}</span>
+              {viewingFile && (
+                <Badge variant="outline" className="text-[9px] font-mono shrink-0">
+                  {formatBytes(viewingFile.size)}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {viewingFile?.mimeType || 'text/plain'} — read-only preview
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 rounded-xl border border-border bg-black/40 overflow-hidden">
+            {viewerLoading ? (
+              <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin size-6 text-accent" /></div>
+            ) : (
+              <pre className="text-xs font-mono text-foreground/90 p-4 overflow-auto h-full max-h-[60vh] whitespace-pre-wrap break-words">
+                {viewingFile?.content || <span className="text-muted-foreground italic">Empty file</span>}
+              </pre>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setViewingFile(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
