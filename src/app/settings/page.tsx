@@ -58,6 +58,7 @@ const TASK_LABELS: Record<string, string> = {
   personaGeneration: 'Persona Synthesis',
   skillSynthesis: 'Skill Architecture',
   conversation: 'Agent Conversation',
+  visualize: 'Visualize',
 };
 
 function ApiKeyDialog({
@@ -264,6 +265,7 @@ export default function SettingsPage() {
                 { id: 'personaGeneration', label: 'Persona Synthesis', desc: 'Agent persona generation' },
                 { id: 'skillSynthesis', label: 'Skill Architecture', desc: 'Skill module generation' },
                 { id: 'conversation', label: 'Agent Conversation', desc: 'Real-time chat & tool use' },
+                { id: 'visualize', label: 'Visualize', desc: 'AI chart & dashboard generation' },
               ].map((task) => (
                 <div key={task.id} className="flex flex-col gap-3 sm:grid sm:grid-cols-12 p-4 sm:items-center border-b border-border/50 hover:bg-accent/5 transition-colors">
                   <div className="sm:col-span-4 flex items-center justify-between sm:block">

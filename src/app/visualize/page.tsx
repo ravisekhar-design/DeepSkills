@@ -15,9 +15,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
+import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
 import { generateChart, type GeneratedChartConfig } from "@/ai/flows/chart-generation";
-import type { DatabaseConnection } from "@/lib/store";
+import type { DatabaseConnection, SystemSettings } from "@/lib/store";
+import { DEFAULT_SETTINGS } from "@/lib/store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,6 +105,8 @@ function parseFile(content: string, fileName: string): { columns: SchemaColumn[]
 export default function VisualizePage() {
   const { user } = useUser();
   const { toast } = useToast();
+  const { data: settingsData } = useDoc<SystemSettings>(null);
+  const visualizeModel = (settingsData || DEFAULT_SETTINGS).modelMapping.visualize;
 
   // Dashboard list
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
@@ -315,6 +319,7 @@ export default function VisualizePage() {
           dbType: conn?.type,
           connectionId: selectedConn,
           userId: user?.uid,
+          preferredModel: visualizeModel,
         });
       } else {
         const file = folderFiles.find(f => f.id === selectedFile);
@@ -325,6 +330,7 @@ export default function VisualizePage() {
           sampleRows: fileSchema?.rows?.slice(0, 5) || [],
           allRows: fileSchema?.rows,
           prompt,
+          preferredModel: visualizeModel,
         });
       }
       setPreview(result);

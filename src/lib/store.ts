@@ -73,6 +73,7 @@ export interface SystemSettings {
     personaGeneration: string;
     skillSynthesis: string;
     conversation: string;
+    visualize: string;
   };
   providers: {
     google: boolean;
@@ -99,6 +100,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     personaGeneration: 'googleai/gemini-2.0-flash',
     skillSynthesis: 'googleai/gemini-2.0-flash',
     conversation: 'googleai/gemini-2.0-flash',
+    visualize: 'googleai/gemini-2.0-flash',
   },
   providers: {
     google: true,
