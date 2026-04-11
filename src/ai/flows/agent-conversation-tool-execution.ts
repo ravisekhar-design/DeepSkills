@@ -147,9 +147,19 @@ export async function agentConversationToolExecution(
   }
 
   // ── System prompt — inject uploaded file context if present ─────────────
-  const fileSection = input.fileContext?.trim()
-    ? `\n\n## Uploaded File Context\nThe following files have been uploaded by the user and are available for reference. Use them to answer questions accurately:\n\n${input.fileContext}`
-    : '';
+  // Hard cap the injected file payload so we never blow past the model's
+  // context window. ~80k chars ≈ ~20k tokens, safe for all supported models.
+  const FILE_CONTEXT_CHAR_BUDGET = 80_000;
+  let fileSection = '';
+  if (input.fileContext?.trim()) {
+    let payload = input.fileContext;
+    let truncationNotice = '';
+    if (payload.length > FILE_CONTEXT_CHAR_BUDGET) {
+      payload = payload.slice(0, FILE_CONTEXT_CHAR_BUDGET);
+      truncationNotice = `\n\n[NOTICE: uploaded file content was truncated to fit the model context window. ${(input.fileContext.length - FILE_CONTEXT_CHAR_BUDGET).toLocaleString()} characters omitted. Ask the user for a narrower query or smaller files if critical data is missing.]`;
+    }
+    fileSection = `\n\n## Uploaded File Context\nThe following files have been uploaded by the user and are available for reference. Use them to answer questions accurately:\n\n${payload}${truncationNotice}`;
+  }
 
   const systemPrompt = `You are a specialized AI assistant in DeepSkills.
 Your assigned skill pipeline: ${input.availableSkills?.join(', ') || 'None'}.
