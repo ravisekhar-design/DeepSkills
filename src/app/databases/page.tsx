@@ -141,6 +141,10 @@ export default function DatabasesPage() {
   };
 
   // ── Upload file(s) ──────────────────────────────────────────────────────
+  // Vercel Hobby plan caps request bodies at ~4.5 MB.  We leave ~0.5 MB headroom
+  // for JSON envelope overhead, so reject anything over 4 MB client-side.
+  const CLIENT_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !openFolder) return;
@@ -154,6 +158,14 @@ export default function DatabasesPage() {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+
+      // Client-side size check — fail fast with a clear message
+      if (file.size > CLIENT_MAX_BYTES) {
+        failures.push(`${file.name}: File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB per file.`);
+        setUploadProgress({ done: i + 1, total: files.length });
+        continue;
+      }
+
       try {
         const content = await file.text();
         const res = await fetch('/api/files', {
@@ -167,12 +179,19 @@ export default function DatabasesPage() {
             mimeType: file.type || 'text/plain',
           }),
         });
-        const json = await res.json();
+        // Safely parse — server may return plain-text errors (e.g. 413 from proxy)
+        const text = await res.text();
+        let json: any;
+        try { json = JSON.parse(text); } catch { json = { error: `HTTP ${res.status}: ${text.slice(0, 120)}` }; }
+
         if (json.data) {
           setFolderFiles(prev => [...prev, json.data]);
           succeeded++;
         } else {
-          failures.push(`${file.name}: ${json.error || 'unknown error'}`);
+          const msg = res.status === 413
+            ? `File too large for server (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB.`
+            : json.error || 'unknown error';
+          failures.push(`${file.name}: ${msg}`);
         }
       } catch (err: any) {
         failures.push(`${file.name}: ${err.message}`);
