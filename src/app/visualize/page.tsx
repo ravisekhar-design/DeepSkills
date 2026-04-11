@@ -331,7 +331,14 @@ export default function VisualizePage() {
       setPreviewTitle(result.title);
       setStep(3);
     } catch (err: any) {
-      toast({ title: 'Generation failed', description: err.message, variant: 'destructive' });
+      const msg: string = err.message || '';
+      const friendly =
+        msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')
+          ? 'AI quota exceeded for this model. Switch to a different model in Settings or try again later.'
+          : msg.includes('401') || msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized')
+          ? 'Invalid or missing API key. Check your model settings.'
+          : msg;
+      toast({ title: 'Generation failed', description: friendly, variant: 'destructive' });
     }
     setGenerating(false);
   };
