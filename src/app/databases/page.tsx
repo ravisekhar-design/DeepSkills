@@ -87,7 +87,7 @@ export default function DatabasesPage() {
     setFoldersLoading(false);
   };
 
-  useEffect(() => { loadFolders(); }, [user]);
+  useEffect(() => { loadFolders(); }, [user?.uid]);
 
   // ── Load files for open folder ──────────────────────────────────────────
   const openFolderView = async (folder: FileFolder) => {

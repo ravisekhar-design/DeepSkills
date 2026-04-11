@@ -42,7 +42,7 @@ export default function AgentsPage() {
       .then(r => r.json())
       .then(j => setFileFolders(j.data || []))
       .catch(() => {});
-  }, [user]);
+  }, [user?.uid]);
 
   const availableSkills = useMemo(() => {
     const customMap = new Map(customSkills.map(s => [s.id, s]));
