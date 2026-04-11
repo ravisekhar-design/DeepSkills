@@ -27,6 +27,7 @@ model User {
   databaseConnections DatabaseConnection[]
   fileFolders         FileFolder[]
   fileRecords         FileRecord[]
+  dashboards          Dashboard[]
 }
 
 model Account {
@@ -152,4 +153,30 @@ model FileRecord {
   createdAt DateTime   @default(now())
   folder    FileFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Dashboard {
+  id        String            @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  widgets   DashboardWidget[]
+}
+
+model DashboardWidget {
+  id             String    @id @default(cuid())
+  dashboardId    String
+  title          String
+  chartType      String    // 'bar' | 'line' | 'area' | 'pie'
+  chartConfig    String    @db.Text // JSON: { xKey, series, data }
+  dataSourceType String    // 'database' | 'file'
+  dataSourceId   String    // connectionId or fileId
+  dataSourceName String    @default("") // display name
+  dataQuery      String?   @db.Text // SQL for database charts
+  prompt         String    @db.Text
+  gridW          Int       @default(1) // 1=half, 2=full width
+  createdAt      DateTime  @default(now())
+  dashboard      Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 }

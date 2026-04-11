@@ -5,7 +5,7 @@ import { authOptions } from '../auth/[...nextauth]/route';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_FILE_SIZE = 512 * 1024; // 512 KB text limit per file
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB text limit per file
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 // ?type=folders                      → list all user folders (with file counts)
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 
       const byteSize = Buffer.byteLength(content, 'utf8');
       if (byteSize > MAX_FILE_SIZE) {
-        return NextResponse.json({ error: `File too large (max 512 KB). This file is ${(byteSize / 1024).toFixed(0)} KB.` }, { status: 413 });
+        return NextResponse.json({ error: `File too large (max 10 MB). This file is ${(byteSize / 1024 / 1024).toFixed(2)} MB.` }, { status: 413 });
       }
 
       const file = await (prisma as any).fileRecord.create({

@@ -147,9 +147,10 @@ export async function agentConversationToolExecution(
   }
 
   // ── System prompt — inject uploaded file context if present ─────────────
-  // Hard cap the injected file payload so we never blow past the model's
-  // context window. ~80k chars ≈ ~20k tokens, safe for all supported models.
-  const FILE_CONTEXT_CHAR_BUDGET = 80_000;
+  // Conservative budget: leaves room for chat history + tool schemas.
+  // ~30k chars ≈ ~7.5k tokens. Halved from 80k to prevent overflow on
+  // smaller-context models (e.g. GPT-4 8k, Groq) and long conversations.
+  const FILE_CONTEXT_CHAR_BUDGET = 30_000;
   let fileSection = '';
   if (input.fileContext?.trim()) {
     let payload = input.fileContext;
@@ -168,7 +169,11 @@ ${fileSection}
 IMPORTANT — FORMATTING: When the user asks for raw data (CSV, JSON, code, XML, etc.), wrap it in a fenced Markdown code block with the appropriate language tag (e.g. \`\`\`csv). Never output raw structured data as plain prose.`;
 
   // ── Build history ────────────────────────────────────────────────────────
-  const historyMessages = (input.chatHistory || []).map(msg =>
+  // Cap at last 20 messages to avoid overflowing the model's context window
+  // when conversations grow long. Keeps the most recent context.
+  const MAX_HISTORY_MESSAGES = 20;
+  const trimmedHistory = (input.chatHistory || []).slice(-MAX_HISTORY_MESSAGES);
+  const historyMessages = trimmedHistory.map(msg =>
     msg.role === 'user' ? new HumanMessage(msg.content) : new AIMessage(msg.content)
   );
 

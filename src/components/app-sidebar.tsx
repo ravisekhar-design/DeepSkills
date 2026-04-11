@@ -9,7 +9,8 @@ import {
   Settings,
   LogOut,
   Hexagon,
-  Database
+  Database,
+  BarChart2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,6 +37,7 @@ const navigation = [
   { name: "Agents", href: "/agents", icon: Users },
   { name: "Skills", href: "/skills", icon: Zap },
   { name: "Databases", href: "/databases", icon: Database },
+  { name: "Visualize", href: "/visualize", icon: BarChart2 },
   { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
