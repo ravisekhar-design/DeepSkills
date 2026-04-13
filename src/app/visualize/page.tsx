@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, FolderOpen,
   ChevronRight, Sparkles, RefreshCw, LayoutDashboard, PencilLine,
-  Check, X, Table, FileText,
+  Check, X, Table, FileText, Sliders,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
 import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
+import { ManualChartBuilder } from "@/components/manual-chart-builder";
 import { generateChart, type GeneratedChartConfig } from "@/ai/flows/chart-generation";
 import type { DatabaseConnection, SystemSettings } from "@/lib/store";
 import { DEFAULT_SETTINGS } from "@/lib/store";
@@ -151,6 +152,9 @@ export default function VisualizePage() {
   // Step 2 — prompt
   const [prompt, setPrompt] = useState('');
 
+  // Step 2 — build mode
+  const [buildMode, setBuildMode] = useState<'ai' | 'manual'>('ai');
+
   // Step 3 — generated preview
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview] = useState<GeneratedChartConfig | null>(null);
@@ -241,6 +245,7 @@ export default function VisualizePage() {
     setSelectedConn(''); setTables([]); setSelectedTable(''); setTableSchema({ columns: [], sampleRows: [] });
     setSelectedFolder(''); setFolderFiles([]); setSelectedFile(''); setFileSchema(null);
     setPrompt(''); setPreview(null); setPreviewTitle('');
+    setBuildMode('ai');
     setWizardOpen(true);
   };
 
@@ -428,7 +433,10 @@ export default function VisualizePage() {
       if (sourceType === 'database') return !!selectedTable && tableSchema.columns.length > 0;
       return !!selectedFile && !!fileSchema;
     }
-    if (step === 2) return prompt.trim().length > 3;
+    if (step === 2) {
+      if (buildMode === 'manual') return !!preview;
+      return prompt.trim().length > 3;
+    }
     return false;
   };
 
@@ -593,7 +601,7 @@ export default function VisualizePage() {
 
       {/* ── Add Chart Wizard ─────────────────────────────────────────────── */}
       <Dialog open={wizardOpen} onOpenChange={v => { if (!v) setWizardOpen(false); }}>
-        <DialogContent className="glass-panel border-accent/20 sm:max-w-2xl">
+        <DialogContent className={`glass-panel border-accent/20 ${step === 2 && buildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="size-5 text-accent" />
@@ -756,27 +764,64 @@ export default function VisualizePage() {
             </div>
           )}
 
-          {/* ── Step 2: Prompt ─── */}
+          {/* ── Step 2: Build chart (AI or Manual) ─── */}
           {step === 2 && (
-            <div className="space-y-4 py-2">
-              <div className="rounded-lg bg-black/20 border border-border/40 p-3">
-                <p className="text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wider">Data source</p>
-                <p className="text-xs font-medium">
-                  {sourceType === 'database' ? `${connections.find(c => c.id === selectedConn)?.name} → ${selectedTable}` : folderFiles.find(f => f.id === selectedFile)?.name}
+            <div className="space-y-3 py-1">
+
+              {/* Mode toggle */}
+              <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-lg w-fit">
+                <button
+                  onClick={() => { setBuildMode('ai'); setPreview(null); setPreviewTitle(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${buildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Sparkles className="size-3" /> AI Describe
+                </button>
+                <button
+                  onClick={() => { setBuildMode('manual'); setPreview(null); setPreviewTitle(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${buildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Sliders className="size-3" /> Manual Builder
+                </button>
+              </div>
+
+              {/* Source badge */}
+              <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Source</p>
+                <p className="text-xs font-medium truncate">
+                  {sourceType === 'database'
+                    ? `${connections.find(c => c.id === selectedConn)?.name} → ${selectedTable}`
+                    : folderFiles.find(f => f.id === selectedFile)?.name}
                 </p>
               </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart you want</label>
-                <Textarea
-                  autoFocus
-                  value={prompt}
-                  onChange={e => setPrompt(e.target.value)}
-                  placeholder="e.g. Show me sales by region as a bar chart, or Monthly revenue trend over time"
-                  className="resize-none text-sm"
-                  rows={4}
+
+              {/* AI mode */}
+              {buildMode === 'ai' && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart you want</label>
+                  <Textarea
+                    autoFocus
+                    value={prompt}
+                    onChange={e => setPrompt(e.target.value)}
+                    placeholder="e.g. Show me sales by region as a bar chart, or Monthly revenue trend over time"
+                    className="resize-none text-sm"
+                    rows={4}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1.5">Be specific about the columns you want to use and how to aggregate them.</p>
+                </div>
+              )}
+
+              {/* Manual mode */}
+              {buildMode === 'manual' && (
+                <ManualChartBuilder
+                  columns={sourceType === 'database' ? tableSchema.columns : (fileSchema?.columns || [])}
+                  rows={sourceType === 'database' ? [] : (fileSchema?.rows || [])}
+                  sourceType={sourceType}
+                  connectionId={selectedConn || undefined}
+                  tableName={selectedTable || folderFiles.find(f => f.id === selectedFile)?.name || ''}
+                  dbType={connections.find(c => c.id === selectedConn)?.type}
+                  onGenerate={(config, title) => { setPreview(config); setPreviewTitle(title); }}
                 />
-                <p className="text-[10px] text-muted-foreground mt-1.5">Be specific about the columns you want to use and how to aggregate them.</p>
-              </div>
+              )}
             </div>
           )}
 
@@ -812,9 +857,14 @@ export default function VisualizePage() {
                   Next <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
-              {step === 2 && (
+              {step === 2 && buildMode === 'ai' && (
                 <Button onClick={runGenerate} disabled={!canProceed() || generating}>
                   {generating ? <><Loader2 className="size-4 mr-2 animate-spin" /> Generating…</> : <><Sparkles className="size-4 mr-1" /> Generate Chart</>}
+                </Button>
+              )}
+              {step === 2 && buildMode === 'manual' && (
+                <Button onClick={() => setStep(3)} disabled={!preview}>
+                  Use This Chart <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
               {step === 3 && (
