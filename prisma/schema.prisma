@@ -143,16 +143,28 @@ model FileFolder {
 }
 
 model FileRecord {
-  id        String     @id @default(cuid())
-  userId    String
-  folderId  String
-  name      String
-  mimeType  String     @default("text/plain")
-  size      Int        @default(0)
-  content   String     @db.Text
-  createdAt DateTime   @default(now())
-  folder    FileFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String      @id @default(cuid())
+  userId      String
+  folderId    String
+  name        String
+  mimeType    String      @default("text/plain")
+  size        Int         @default(0)
+  content     String?     @db.Text  // null when file is stored as chunks
+  totalChunks Int         @default(0)
+  createdAt   DateTime    @default(now())
+  folder      FileFolder  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks      FileChunk[]
+}
+
+model FileChunk {
+  id      String     @id @default(cuid())
+  fileId  String
+  idx     Int
+  content String     @db.Text
+  file    FileRecord @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, idx])
 }
 
 model Dashboard {

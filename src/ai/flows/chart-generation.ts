@@ -12,10 +12,22 @@ export interface ChartSeries {
   dataKey: string;
   name: string;
   color: string;
+  seriesType?: 'bar' | 'line' | 'area'; // used by composed charts only
 }
 
+export type ChartType =
+  | 'bar' | 'stacked_bar' | 'horizontal_bar'
+  | 'line' | 'area'
+  | 'pie' | 'donut'
+  | 'scatter'
+  | 'radar'
+  | 'treemap'
+  | 'funnel'
+  | 'composed'
+  | 'radial_bar';
+
 export interface GeneratedChartConfig {
-  chartType: 'bar' | 'line' | 'area' | 'pie';
+  chartType: ChartType;
   title: string;
   xKey: string;
   series: ChartSeries[];
@@ -24,6 +36,51 @@ export interface GeneratedChartConfig {
 }
 
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#a3e635', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+const SYSTEM = `You are a data visualization expert. Your job is to analyze a data schema and produce a chart configuration.
+
+Respond ONLY with a valid JSON object — no markdown, no explanation, no code fences. The JSON must match this shape exactly:
+{
+  "chartType": <see below>,
+  "title": "<descriptive chart title>",
+  "sql": "<SELECT query>" | null,
+  "xKey": "<column name for x-axis / category>",
+  "series": [
+    { "dataKey": "<column name>", "name": "<display label>", "color": "<hex color>", "seriesType": "bar"|"line"|"area" }
+  ],
+  "aggregation": {
+    "groupBy": "<column to group by>",
+    "metrics": [
+      { "dataKey": "<output column name>", "sourceColumn": "<input column or '*'>", "func": "count"|"count_distinct"|"sum"|"avg" }
+    ]
+  } | null
+}
+
+Chart type rules — pick the BEST fit:
+• "bar"           — compare discrete categories (vertical bars)
+• "stacked_bar"   — compare multiple metrics per category + show totals
+• "horizontal_bar"— ranked categories or long label names (horizontal bars)
+• "line"          — trends over time (continuous x-axis)
+• "area"          — cumulative / smooth time-series trends
+• "pie"           — proportions with ≤ 8 categories
+• "donut"         — proportions with center space (like pie but with hole)
+• "scatter"       — correlation between TWO numeric variables
+• "radar"         — compare multiple metrics across categories (spider chart)
+• "treemap"       — proportional area, hierarchical data
+• "funnel"        — sequential conversion stages / pipeline
+• "composed"      — overlay bar + line for dual metrics on same axis
+• "radial_bar"    — progress / achievement per category in polar form
+
+Additional rules:
+- For database sources: generate a SQL SELECT query that returns already-aggregated/ready data. Set aggregation to null. Alias columns clearly. Keep SQL simple and compatible with the database type.
+- For file sources: set sql to null. If the user asks for grouping/counting/aggregation use the aggregation field. If no aggregation is needed, use exact column names.
+- xKey: string/label column (exception: for scatter, xKey must be a NUMERIC column)
+- series: numeric columns to plot. For composed, each series entry MUST include seriesType ("bar" or "line").
+- For scatter: xKey is the X numeric column; series[0].dataKey is the Y numeric column.
+- For radar: xKey is the category spoke label; series are the numeric metric columns.
+- For treemap, funnel, radial_bar: xKey is the name/label; series[0].dataKey is the value.
+- Colors must be from: #6366f1, #22d3ee, #a3e635, #f59e0b, #ef4444, #8b5cf6.
+- SQL must be safe SELECT-only. Never use DROP, DELETE, UPDATE, INSERT.`;
 
 interface AggMetric { dataKey: string; sourceColumn: string; func: 'count' | 'count_distinct' | 'sum' | 'avg' }
 interface Aggregation { groupBy: string; metrics: AggMetric[] }
@@ -55,36 +112,6 @@ function applyAggregation(rows: any[], agg: Aggregation): any[] {
   return result;
 }
 
-const SYSTEM = `You are a data visualization expert. Your job is to analyze a data schema and produce a chart configuration.
-
-Respond ONLY with a valid JSON object — no markdown, no explanation, no code fences. The JSON must match this shape exactly:
-{
-  "chartType": "bar" | "line" | "area" | "pie",
-  "title": "<descriptive chart title>",
-  "sql": "<SELECT query>" | null,
-  "xKey": "<column name for x-axis / category>",
-  "series": [
-    { "dataKey": "<column name>", "name": "<display label>", "color": "<hex color>" }
-  ],
-  "aggregation": {
-    "groupBy": "<column to group by>",
-    "metrics": [
-      { "dataKey": "<output column name>", "sourceColumn": "<input column or '*'>", "func": "count" | "count_distinct" | "sum" | "avg" }
-    ]
-  } | null
-}
-
-Rules:
-- For database sources: generate a SQL SELECT query that returns already-aggregated data needed for the chart. Set aggregation to null. Alias columns clearly. Keep it simple and compatible with the database type.
-- For file sources: set sql to null. If the user asks for grouping, counting, or aggregation (e.g. "count by", "group by", "distinct count") use the aggregation field to describe it. xKey must equal aggregation.groupBy. series dataKey values must equal the aggregation metric dataKey names.
-- If the file request needs no aggregation, set aggregation to null and use exact column names from the file.
-- chartType: use "bar" for comparisons/categories, "line"/"area" for time series, "pie" for proportions.
-- xKey must be a string/label column.
-- series should contain the numeric column(s) to plot.
-- Colors must be from: #6366f1, #22d3ee, #a3e635, #f59e0b, #ef4444, #8b5cf6.
-- If the data has only one numeric column, use one series entry.
-- SQL must be safe SELECT-only. Never use DROP, DELETE, UPDATE, INSERT.`;
-
 export async function generateChart(input: {
   sourceType: 'database' | 'file';
   tableName: string;
@@ -93,9 +120,7 @@ export async function generateChart(input: {
   prompt: string;
   dbType?: string;
   preferredModel?: string;
-  // For file sources — full data rows (up to 200)
   allRows?: any[];
-  // For database sources — run SQL after generating it
   connectionId?: string;
   userId?: string;
 }): Promise<GeneratedChartConfig> {
@@ -121,7 +146,6 @@ User request: "${input.prompt}"`;
 
   const text = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
-  // Extract JSON from response (strip any accidental markdown fences)
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('AI did not return a valid chart configuration.');
 
@@ -153,7 +177,7 @@ User request: "${input.prompt}"`;
     if (config.aggregation?.groupBy && Array.isArray(config.aggregation.metrics)) {
       data = applyAggregation(rawRows, config.aggregation as Aggregation);
     } else {
-      data = rawRows.slice(0, 200);
+      data = rawRows.slice(0, 500);
     }
   }
 

@@ -141,9 +141,52 @@ export default function DatabasesPage() {
   };
 
   // ── Upload file(s) ──────────────────────────────────────────────────────
-  // Vercel Hobby plan caps request bodies at ~4.5 MB.  We leave ~0.5 MB headroom
-  // for JSON envelope overhead, so reject anything over 4 MB client-side.
-  const CLIENT_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
+  // Files ≤ 3.5 MB → single request.
+  // Files > 3.5 MB → chunked upload (3 MB chunks) to stay under Vercel's
+  //                  4.5 MB request body limit per request.
+  // No upper bound enforced client-side — files of any size are supported.
+  const SINGLE_UPLOAD_LIMIT = 3.5 * 1024 * 1024;  // 3.5 MB
+  const CHUNK_SIZE           = 3   * 1024 * 1024;  // 3 MB per chunk
+
+  const safeJson = async (res: Response): Promise<any> => {
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return { error: `HTTP ${res.status}: ${text.slice(0, 120)}` }; }
+  };
+
+  const uploadChunked = async (file: File, content: string): Promise<any> => {
+    const totalChunks = Math.ceil(content.length / CHUNK_SIZE);
+    // 1. Start
+    const startRes = await fetch('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'file-start', folderId: openFolder!.id, name: file.name, mimeType: file.type || 'text/plain', totalSize: file.size, totalChunks }),
+    });
+    const startJson = await safeJson(startRes);
+    if (!startJson.data?.id) throw new Error(startJson.error || 'Failed to start upload');
+    const fileId = startJson.data.id;
+
+    // 2. Upload chunks
+    for (let c = 0; c < totalChunks; c++) {
+      const chunk = content.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+      const chunkRes = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'file-chunk', fileId, idx: c, content: chunk }),
+      });
+      const chunkJson = await safeJson(chunkRes);
+      if (!chunkJson.success) throw new Error(chunkJson.error || `Chunk ${c} failed`);
+    }
+
+    // 3. Finalize
+    const finalRes = await fetch('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'file-finalize', fileId }),
+    });
+    const finalJson = await safeJson(finalRes);
+    if (!finalJson.data) throw new Error(finalJson.error || 'Finalize failed');
+    return finalJson.data;
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -158,41 +201,34 @@ export default function DatabasesPage() {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-
-      // Client-side size check — fail fast with a clear message
-      if (file.size > CLIENT_MAX_BYTES) {
-        failures.push(`${file.name}: File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB per file.`);
-        setUploadProgress({ done: i + 1, total: files.length });
-        continue;
-      }
-
       try {
         const content = await file.text();
-        const res = await fetch('/api/files', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'file',
-            folderId: openFolder.id,
-            name: file.name,
-            content,
-            mimeType: file.type || 'text/plain',
-          }),
-        });
-        // Safely parse — server may return plain-text errors (e.g. 413 from proxy)
-        const text = await res.text();
-        let json: any;
-        try { json = JSON.parse(text); } catch { json = { error: `HTTP ${res.status}: ${text.slice(0, 120)}` }; }
+        let fileData: any;
 
-        if (json.data) {
-          setFolderFiles(prev => [...prev, json.data]);
-          succeeded++;
+        if (file.size <= SINGLE_UPLOAD_LIMIT) {
+          // Single-request upload
+          const res = await fetch('/api/files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'file', folderId: openFolder.id, name: file.name, content, mimeType: file.type || 'text/plain' }),
+          });
+          const json = await safeJson(res);
+          if (!json.data) {
+            const msg = res.status === 413
+              ? `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Use chunked upload.`
+              : json.error || 'unknown error';
+            failures.push(`${file.name}: ${msg}`);
+            setUploadProgress({ done: i + 1, total: files.length });
+            continue;
+          }
+          fileData = json.data;
         } else {
-          const msg = res.status === 413
-            ? `File too large for server (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB.`
-            : json.error || 'unknown error';
-          failures.push(`${file.name}: ${msg}`);
+          // Chunked upload for large files
+          fileData = await uploadChunked(file, content);
         }
+
+        setFolderFiles(prev => [...prev, fileData]);
+        succeeded++;
       } catch (err: any) {
         failures.push(`${file.name}: ${err.message}`);
       }
@@ -565,7 +601,7 @@ export default function DatabasesPage() {
               </div>
 
               <div className="p-3 rounded-xl bg-accent/5 border border-accent/10 text-[11px] text-muted-foreground">
-                Supported: <span className="font-mono text-accent/80">.txt .md .csv .json .ts .js .py .html .xml .yaml .sql .log</span> — max <strong>512 KB</strong> per file. Files are injected into the agent's context when it responds.
+                Supported: <span className="font-mono text-accent/80">.txt .md .csv .json .ts .js .py .html .xml .yaml .sql .log</span> — large files use chunked upload automatically. Files are injected into the agent's context when it responds.
               </div>
 
               {filesLoading ? (
@@ -577,7 +613,7 @@ export default function DatabasesPage() {
                 >
                   <Upload className="size-12 mb-4 text-muted-foreground opacity-20" />
                   <p className="text-sm font-bold mb-1">Click to upload one or more files</p>
-                  <p className="text-xs text-muted-foreground">Text, CSV, JSON, code files up to 512 KB each</p>
+                  <p className="text-xs text-muted-foreground">Text, CSV, JSON, code files — any size</p>
                 </div>
               ) : (
                 <div className="space-y-2">
