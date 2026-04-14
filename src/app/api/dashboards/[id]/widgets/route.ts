@@ -62,6 +62,56 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 }
 
+// PATCH /api/dashboards/[id]/widgets?widgetId=xxx — update title / chartType / config / query / prompt
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = (session.user as any).id;
+
+    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
+    if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    const { searchParams } = new URL(request.url);
+    const widgetId = searchParams.get('widgetId');
+    if (!widgetId) return NextResponse.json({ error: 'widgetId required' }, { status: 400 });
+
+    const existing = await (prisma as any).dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
+    if (!existing) return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+
+    const body = await request.json();
+    const upd: any = {};
+    if (body.title      !== undefined) upd.title      = body.title;
+    if (body.chartType  !== undefined) upd.chartType  = body.chartType;
+    if (body.chartConfig !== undefined)
+      upd.chartConfig = typeof body.chartConfig === 'string' ? body.chartConfig : JSON.stringify(body.chartConfig);
+    if (body.dataQuery  !== undefined) upd.dataQuery  = body.dataQuery ?? null;
+    if (body.prompt     !== undefined) upd.prompt     = body.prompt;
+
+    const widget = await (prisma as any).dashboardWidget.update({ where: { id: widgetId }, data: upd });
+
+    return NextResponse.json({
+      data: {
+        id: widget.id,
+        dashboardId: widget.dashboardId,
+        title: widget.title,
+        chartType: widget.chartType,
+        chartConfig: (() => { try { return JSON.parse(widget.chartConfig); } catch { return {}; } })(),
+        dataSourceType: widget.dataSourceType,
+        dataSourceId: widget.dataSourceId,
+        dataSourceName: widget.dataSourceName,
+        dataQuery: widget.dataQuery,
+        prompt: widget.prompt,
+        gridW: widget.gridW,
+        createdAt: widget.createdAt.getTime(),
+      },
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 // DELETE /api/dashboards/[id]/widgets?widgetId=xxx — remove a widget
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

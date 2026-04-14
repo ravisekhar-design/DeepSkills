@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, FolderOpen,
   ChevronRight, Sparkles, RefreshCw, LayoutDashboard, PencilLine,
-  Check, X, Table, FileText, Sliders,
+  Check, X, Table, FileText, Sliders, Maximize2, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -160,6 +160,25 @@ export default function VisualizePage() {
   const [preview, setPreview] = useState<GeneratedChartConfig | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // ── Inline widget rename ────────────────────────────────────────────────
+  const [renamingWidgetId, setRenamingWidgetId] = useState<string | null>(null);
+  const [renameWidgetValue, setRenameWidgetValue] = useState('');
+
+  // ── Expand (full-screen) ────────────────────────────────────────────────
+  const [expandedWidget, setExpandedWidget] = useState<DashboardWidget | null>(null);
+
+  // ── Edit chart dialog ──────────────────────────────────────────────────
+  const [editDialogOpen, setEditDialogOpen]   = useState(false);
+  const [editingWidget,  setEditingWidget]    = useState<DashboardWidget | null>(null);
+  const [editBuildMode,  setEditBuildMode]    = useState<'ai' | 'manual'>('ai');
+  const [editTitle,      setEditTitle]        = useState('');
+  const [editPrompt,     setEditPrompt]       = useState('');
+  const [editPreview,    setEditPreview]      = useState<GeneratedChartConfig | null>(null);
+  const [editSchema,     setEditSchema]       = useState<{ columns: SchemaColumn[]; rows: any[] }>({ columns: [], rows: [] });
+  const [editSchemaLoading, setEditSchemaLoading] = useState(false);
+  const [editGenerating, setEditGenerating]   = useState(false);
+  const [editSaving,     setEditSaving]       = useState(false);
 
   // ── Load dashboards ──────────────────────────────────────────────────────
 
@@ -425,6 +444,125 @@ export default function VisualizePage() {
     }
   };
 
+  // ── Save inline widget rename ────────────────────────────────────────────
+  const saveWidgetRename = async (widgetId: string, title: string) => {
+    setRenamingWidgetId(null);
+    if (!title.trim() || !selected) return;
+    try {
+      await fetch(`/api/dashboards/${selected.id}/widgets?widgetId=${widgetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim() }),
+      });
+      setSelected(prev => prev ? {
+        ...prev,
+        widgets: prev.widgets.map(w => w.id === widgetId ? { ...w, title: title.trim() } : w),
+      } : prev);
+    } catch { /* non-fatal */ }
+  };
+
+  // ── Open edit dialog ─────────────────────────────────────────────────────
+  const openEditDialog = async (widget: DashboardWidget) => {
+    setEditingWidget(widget);
+    setEditTitle(widget.title);
+    setEditPrompt(widget.prompt);
+    setEditPreview(widget.chartConfig);
+    setEditBuildMode('ai');
+    setEditSchema({ columns: [], rows: [] });
+    setEditSchemaLoading(true);
+    setEditDialogOpen(true);
+
+    // Ensure connections are in state (needed for dbType lookup in ManualChartBuilder)
+    if (connections.length === 0) {
+      try {
+        const res = await fetch('/api/store?key=nexus_databases');
+        const json = await res.json();
+        setConnections(json.data || []);
+      } catch { /* non-fatal */ }
+    }
+
+    // Load schema so the Manual Builder and AI re-generation both have column info
+    try {
+      if (widget.dataSourceType === 'database') {
+        // dataSourceName is stored as "ConnName / TableName"
+        const tableName = widget.dataSourceName.split(' / ').pop()?.trim() || '';
+        if (tableName) {
+          const res = await fetch(`/api/dashboards/schema?connectionId=${widget.dataSourceId}&table=${encodeURIComponent(tableName)}`);
+          const json = await res.json();
+          setEditSchema({ columns: json.data?.columns || [], rows: json.data?.sampleRows || [] });
+        }
+      } else {
+        const res = await fetch(`/api/files?type=content&fileId=${widget.dataSourceId}`);
+        const json = await res.json();
+        if (json.data?.content) {
+          const parsed = parseFile(json.data.content, widget.dataSourceName);
+          setEditSchema({ columns: parsed.columns, rows: parsed.rows });
+        }
+      }
+    } catch { /* non-fatal */ }
+    setEditSchemaLoading(false);
+  };
+
+  // ── Re-generate chart inside edit dialog (AI mode) ────────────────────────
+  const runEditGenerate = async () => {
+    if (!editingWidget) return;
+    setEditGenerating(true);
+    try {
+      const tableName = editingWidget.dataSourceName.split(' / ').pop()?.trim() || '';
+      const conn = connections.find(c => c.id === editingWidget.dataSourceId);
+      const result = await generateChart(
+        editingWidget.dataSourceType === 'database'
+          ? { sourceType: 'database', tableName, columns: editSchema.columns, sampleRows: editSchema.rows, prompt: editPrompt, dbType: conn?.type, connectionId: editingWidget.dataSourceId, userId: user?.uid, preferredModel: visualizeModel }
+          : { sourceType: 'file', tableName: editingWidget.dataSourceName, columns: editSchema.columns, sampleRows: editSchema.rows.slice(0, 5), allRows: editSchema.rows, prompt: editPrompt, preferredModel: visualizeModel }
+      );
+      setEditPreview(result);
+      setEditTitle(result.title);
+    } catch (err: any) {
+      const msg: string = err.message || '';
+      const friendly =
+        msg.includes('429') || msg.toLowerCase().includes('quota') ? 'AI quota exceeded. Try again later or switch model in Settings.'
+        : msg.includes('401') || msg.toLowerCase().includes('api key') ? 'Invalid or missing API key.'
+        : msg;
+      toast({ title: 'Re-generation failed', description: friendly, variant: 'destructive' });
+    }
+    setEditGenerating(false);
+  };
+
+  // ── Save edited widget ───────────────────────────────────────────────────
+  const saveEditWidget = async () => {
+    if (!editingWidget || !editPreview || !selected) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/dashboards/${selected.id}/widgets?widgetId=${editingWidget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle,
+          chartType: editPreview.chartType,
+          chartConfig: { ...editPreview, title: editTitle },
+          dataQuery: editPreview.sql ?? null,
+          prompt: editPrompt,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        setSelected(prev => prev ? {
+          ...prev,
+          widgets: prev.widgets.map(w => w.id === editingWidget.id ? json.data : w),
+        } : prev);
+        // Sync expanded widget if it was the one being edited
+        setExpandedWidget(prev => prev?.id === editingWidget.id ? json.data : prev);
+        toast({ title: 'Chart updated', description: `"${editTitle}" saved.` });
+        setEditDialogOpen(false);
+      } else {
+        toast({ title: 'Update failed', description: json.error, variant: 'destructive' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Update failed', description: err.message, variant: 'destructive' });
+    }
+    setEditSaving(false);
+  };
+
   // ── Wizard step validation ────────────────────────────────────────────────
 
   const canProceed = () => {
@@ -572,18 +710,44 @@ export default function VisualizePage() {
                     className={`glass-panel border-border/40 overflow-hidden ${widget.gridW === 2 ? 'lg:col-span-2' : ''}`}
                   >
                     <CardHeader className="pb-2 flex-row items-start justify-between space-y-0">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-sm font-semibold truncate">{widget.title}</CardTitle>
+                      <div className="flex-1 min-w-0 mr-2">
+                        {renamingWidgetId === widget.id ? (
+                          <Input
+                            autoFocus
+                            value={renameWidgetValue}
+                            onChange={e => setRenameWidgetValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveWidgetRename(widget.id, renameWidgetValue);
+                              if (e.key === 'Escape') setRenamingWidgetId(null);
+                            }}
+                            onBlur={() => saveWidgetRename(widget.id, renameWidgetValue)}
+                            className="h-7 text-sm font-semibold px-1.5"
+                          />
+                        ) : (
+                          <CardTitle
+                            className="text-sm font-semibold truncate cursor-pointer hover:text-accent transition-colors"
+                            title="Click to rename"
+                            onClick={() => { setRenamingWidgetId(widget.id); setRenameWidgetValue(widget.title); }}
+                          >
+                            {widget.title}
+                          </CardTitle>
+                        )}
                         <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{widget.dataSourceName}</p>
                       </div>
-                      <div className="flex gap-1 shrink-0 ml-2">
-                        <Badge variant="outline" className="text-[9px] font-mono">{widget.chartType}</Badge>
+                      <div className="flex gap-0.5 shrink-0 items-center">
+                        <Badge variant="outline" className="text-[9px] font-mono mr-0.5">{widget.chartType}</Badge>
+                        <Button size="icon" variant="ghost" className="size-7" title="Expand chart" onClick={() => setExpandedWidget(widget)}>
+                          <Maximize2 className="size-3" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-7" title="Edit chart" onClick={() => openEditDialog(widget)}>
+                          <Pencil className="size-3" />
+                        </Button>
                         {widget.dataSourceType === 'database' && widget.dataQuery && (
                           <Button size="icon" variant="ghost" className="size-7" title="Refresh data" onClick={() => refreshWidget(widget)}>
                             <RefreshCw className="size-3" />
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost" className="size-7 hover:text-destructive" onClick={() => deleteWidget(widget.id)}>
+                        <Button size="icon" variant="ghost" className="size-7 hover:text-destructive" title="Delete" onClick={() => deleteWidget(widget.id)}>
                           <Trash2 className="size-3" />
                         </Button>
                       </div>
@@ -598,6 +762,121 @@ export default function VisualizePage() {
           </div>
         )}
       </main>
+
+      {/* ── Expand (full-screen) dialog ──────────────────────────────────── */}
+      <Dialog open={!!expandedWidget} onOpenChange={v => { if (!v) setExpandedWidget(null); }}>
+        <DialogContent className="glass-panel border-accent/20 sm:max-w-6xl max-h-[95vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="text-base font-semibold truncate">{expandedWidget?.title}</DialogTitle>
+            <DialogDescription className="text-[10px] truncate">{expandedWidget?.dataSourceName}</DialogDescription>
+          </DialogHeader>
+          {expandedWidget && (
+            <div className="flex-1 min-h-0 pt-2">
+              <ChartRenderer config={expandedWidget.chartConfig} height={520} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Chart dialog ─────────────────────────────────────────────── */}
+      <Dialog open={editDialogOpen} onOpenChange={v => { if (!v) setEditDialogOpen(false); }}>
+        <DialogContent className={`glass-panel border-accent/20 ${editBuildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="size-4 text-accent" /> Edit Chart
+            </DialogTitle>
+            <DialogDescription>Update title, regenerate with AI, or rebuild manually.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Title */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Chart Title</label>
+              <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="text-sm" />
+            </div>
+
+            {/* Source info */}
+            <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Source</p>
+              <p className="text-xs font-medium truncate">{editingWidget?.dataSourceName}</p>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-lg w-fit">
+              <button
+                onClick={() => setEditBuildMode('ai')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${editBuildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Sparkles className="size-3" /> AI Describe
+              </button>
+              <button
+                onClick={() => setEditBuildMode('manual')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${editBuildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Sliders className="size-3" /> Manual Builder
+              </button>
+            </div>
+
+            {editSchemaLoading && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" /> Loading schema…
+              </div>
+            )}
+
+            {/* AI mode */}
+            {editBuildMode === 'ai' && !editSchemaLoading && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart</label>
+                  <Textarea
+                    value={editPrompt}
+                    onChange={e => setEditPrompt(e.target.value)}
+                    className="resize-none text-sm"
+                    rows={3}
+                    placeholder="Describe what you want to visualise…"
+                  />
+                </div>
+                <Button onClick={runEditGenerate} disabled={!editPrompt.trim() || editGenerating} className="w-full gap-2">
+                  {editGenerating
+                    ? <><Loader2 className="size-4 animate-spin" /> Generating…</>
+                    : <><Sparkles className="size-4" /> Re-generate Chart</>
+                  }
+                </Button>
+              </div>
+            )}
+
+            {/* Manual builder mode */}
+            {editBuildMode === 'manual' && !editSchemaLoading && (
+              <ManualChartBuilder
+                columns={editSchema.columns}
+                rows={editSchema.rows}
+                sourceType={editingWidget?.dataSourceType || 'database'}
+                connectionId={editingWidget?.dataSourceType === 'database' ? editingWidget.dataSourceId : undefined}
+                tableName={editingWidget?.dataSourceName.split(' / ').pop()?.trim() || ''}
+                dbType={connections.find(c => c.id === editingWidget?.dataSourceId)?.type}
+                onGenerate={(config, title) => { setEditPreview(config); setEditTitle(title); }}
+              />
+            )}
+
+            {/* Live preview */}
+            {editPreview && (
+              <div className="rounded-xl border border-border/40 bg-black/20 p-4">
+                <ChartRenderer config={{ ...editPreview, title: editTitle }} height={240} />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 flex-row justify-between pt-2">
+            <Button variant="ghost" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveEditWidget} disabled={editSaving || !editPreview}>
+              {editSaving
+                ? <><Loader2 className="size-4 mr-2 animate-spin" /> Saving…</>
+                : 'Save Changes'
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Add Chart Wizard ─────────────────────────────────────────────── */}
       <Dialog open={wizardOpen} onOpenChange={v => { if (!v) setWizardOpen(false); }}>
