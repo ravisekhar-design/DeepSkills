@@ -34,15 +34,22 @@ export default function AgentsPage() {
   const { data: customSkills = [] } = useCollection<Skill>(null, 'skills');
   const { data: dbConnections = [] } = useCollection<DatabaseConnection>(null, 'databases');
   const { data: settings } = useDoc<SystemSettings>(null);
+  const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [fileFolders, setFileFolders] = useState<FileFolder[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isNewAgentOpen) return;
+    setFoldersLoading(true);
     fetch('/api/files?type=folders')
       .then(r => r.json())
       .then(j => setFileFolders(j.data || []))
-      .catch(() => {});
-  }, [user?.uid]);
+      .catch(() => {
+        toast({ title: "Failed to load folders", description: "Could not fetch file storage folders.", variant: "destructive" });
+      })
+      .finally(() => setFoldersLoading(false));
+  }, [user?.uid, isNewAgentOpen]);
 
   const availableSkills = useMemo(() => {
     const customMap = new Map(customSkills.map(s => [s.id, s]));
@@ -50,9 +57,6 @@ export default function AgentsPage() {
     const pureCustom = customSkills.filter(cs => !DEFAULT_SKILLS.some(ds => ds.id === cs.id));
     return [...mergedDefaults, ...pureCustom];
   }, [customSkills]);
-
-  const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [viewCodeAgent, setViewCodeAgent] = useState<Agent | null>(null);
   const [codeTab, setCodeTab] = useState<'agent' | string>('agent');
@@ -424,7 +428,11 @@ export default function AgentsPage() {
                     </div>
                     <Badge variant="outline" className="text-accent border-accent/30 text-[10px]">{selectedFolders.length} selected</Badge>
                   </div>
-                  {fileFolders.length === 0 ? (
+                  {foldersLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="size-6 animate-spin text-accent opacity-50" />
+                    </div>
+                  ) : fileFolders.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
                       <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
                       <p className="text-sm font-bold mb-1">No file folders</p>
