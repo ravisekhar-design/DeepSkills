@@ -148,14 +148,17 @@ export async function agentConversationToolExecution(
 
   // ── Model-aware context budgets ──────────────────────────────────────────
   // Small Groq free-tier models (e.g. llama-3.1-8b-instant) have only 6K TPM.
+  // Tool/function definitions alone can consume 2–4K tokens, so we must leave
+  // substantial headroom. Keep file context + history well below 2K tokens total.
   // Medium models (llama-3.3-70b, mixtral) have 12–30K TPM.
   // Large/cloud models (GPT-4o, Claude, Gemini) have 100K+ TPM.
   const modelId = (input.preferredModel || '').toLowerCase();
   const isSmallModel = /8b|7b|8x7b|llama-3\.1-8b|llama3-8b|gemma.*2b|mistral-7b/.test(modelId);
   const isMediumModel = /70b|mixtral|llama-3\.3|llama-3\.1-70b|gemma.*9b/.test(modelId);
 
-  const FILE_CONTEXT_CHAR_BUDGET = isSmallModel ? 6_000 : isMediumModel ? 16_000 : 30_000;
-  const MAX_HISTORY_MESSAGES    = isSmallModel ? 4     : isMediumModel ? 10      : 20;
+  // Small model: ~1500 chars ≈ 375 tokens for file context (tools take up the rest of the 6K budget)
+  const FILE_CONTEXT_CHAR_BUDGET = isSmallModel ? 1_500 : isMediumModel ? 16_000 : 30_000;
+  const MAX_HISTORY_MESSAGES    = isSmallModel ? 2     : isMediumModel ? 10      : 20;
 
   // ── System prompt — inject uploaded file context if present ─────────────
   let fileSection = '';

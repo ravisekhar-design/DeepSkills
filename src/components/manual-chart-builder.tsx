@@ -432,16 +432,16 @@ export function ManualChartBuilder({
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
               X-Axis / Category
             </label>
-            <Select value={xField} onValueChange={setXField}>
+            <Select value={xField || '__x_none__'} onValueChange={v => setXField(v === '__x_none__' ? '' : v)}>
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder="Select column…" />
               </SelectTrigger>
               <SelectContent>
+                {columns.length === 0 && (
+                  <SelectItem value="__x_none__" disabled className="text-xs text-muted-foreground">No columns available</SelectItem>
+                )}
                 {columns.map(c => (
-                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">
-                    <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${isNumericType(c.type) ? 'bg-green-400' : 'bg-blue-400'}`} />
-                    {c.name}
-                  </SelectItem>
+                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -469,11 +469,17 @@ export function ManualChartBuilder({
               {measures.map((m, idx) => (
                 <div key={m.id} className="flex gap-1.5 items-center">
                   {/* Field */}
-                  <Select value={m.field} onValueChange={v => patchMeasure(m.id, { field: v })}>
+                  <Select
+                    value={m.field || '__m_none__'}
+                    onValueChange={v => patchMeasure(m.id, { field: v === '__m_none__' ? '' : v })}
+                  >
                     <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
                       <SelectValue placeholder="Column…" />
                     </SelectTrigger>
                     <SelectContent>
+                      {columns.length === 0 && (
+                        <SelectItem value="__m_none__" disabled className="text-xs text-muted-foreground">No columns</SelectItem>
+                      )}
                       {columns.map(c => (
                         <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
                       ))}
@@ -523,12 +529,20 @@ export function ManualChartBuilder({
             <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
               Group By <span className="normal-case font-normal text-muted-foreground">(creates series)</span>
             </label>
-            <Select value={groupBy} onValueChange={v => { setGroupBy(v); if (v) setMeasures(prev => prev.slice(0, 1)); }}>
+            {/* Radix UI Select does not allow value="" — use "__none__" as sentinel */}
+            <Select
+              value={groupBy || '__none__'}
+              onValueChange={v => {
+                const val = v === '__none__' ? '' : v;
+                setGroupBy(val);
+                if (val) setMeasures(prev => prev.slice(0, 1));
+              }}
+            >
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="None (optional)…" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="" className="text-xs text-muted-foreground">— None —</SelectItem>
+                <SelectItem value="__none__" className="text-xs text-muted-foreground">— None —</SelectItem>
                 {columns.filter(c => c.name !== xField).map(c => (
                   <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
                 ))}
