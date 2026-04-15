@@ -192,3 +192,14 @@ model DashboardWidget {
   createdAt      DateTime  @default(now())
   dashboard      Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 }
+
+model LoginOtp {
+  id        String   @id @default(cuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
