@@ -4,6 +4,12 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
+const smtpConfigured = !!(
+  process.env.SMTP_HOST &&
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS
+);
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
   providers: [
@@ -19,7 +25,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid credentials");
         }
 
-        // ── OTP verification path ──────────────────────────────────────────
+        // ── OTP verification path ────────────────────────────────────────────
         if (credentials.otpToken) {
           const record = await prisma.loginOtp.findFirst({
             where: {
@@ -30,11 +36,8 @@ export const authOptions: NextAuthOptions = {
             },
           });
 
-          if (!record) {
-            throw new Error("Invalid or expired OTP");
-          }
+          if (!record) throw new Error("Invalid or expired OTP");
 
-          // Consume the OTP immediately (one-time use)
           await prisma.loginOtp.update({
             where: { id: record.id },
             data:  { used: true },
@@ -47,7 +50,13 @@ export const authOptions: NextAuthOptions = {
           return user;
         }
 
-        // ── Direct password path (OTP not enabled / SMTP not configured) ──
+        // ── Direct password path ─────────────────────────────────────────────
+        // Blocked when SMTP is configured — OTP must be used instead.
+        // Allowed as fallback for local / dev environments without SMTP.
+        if (smtpConfigured) {
+          throw new Error("OTP verification is required");
+        }
+
         if (!credentials.password) {
           throw new Error("Invalid credentials");
         }
@@ -56,18 +65,14 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email },
         });
 
-        if (!user || !user.password) {
-          throw new Error("Invalid credentials");
-        }
+        if (!user || !user.password) throw new Error("Invalid credentials");
 
         const isCorrectPassword = await bcrypt.compare(
           credentials.password,
           user.password
         );
 
-        if (!isCorrectPassword) {
-          throw new Error("Invalid credentials");
-        }
+        if (!isCorrectPassword) throw new Error("Invalid credentials");
 
         return user;
       },
@@ -79,6 +84,10 @@ export const authOptions: NextAuthOptions = {
   debug: process.env.NODE_ENV === "development",
   session: {
     strategy: "jwt",
+    maxAge: 8 * 60 * 60, // 8 hours — requires sign-in once per working day
+  },
+  jwt: {
+    maxAge: 8 * 60 * 60,
   },
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
