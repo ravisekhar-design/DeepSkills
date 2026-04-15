@@ -44,6 +44,19 @@ export default function LoginPage() {
       .catch(() => setOtpEnabled(false));
   }, []);
 
+  // ── Show toast when redirected here after session timeout ─────────────
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "timeout") {
+      toast({
+        title: "Session expired",
+        description: "You were automatically signed out after 30 minutes of inactivity.",
+      });
+      // Remove the query param from the URL without a full reload
+      window.history.replaceState({}, "", "/login");
+    }
+  }, []);
+
   // ── Autofill detection ────────────────────────────────────────────────
   // Password managers fill DOM inputs without firing React onChange.
   // Poll the DOM after mount and sync values into React state.
