@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BrainCircuit, Loader2, MailCheck, ArrowLeft, RefreshCw } from "lucide-react";
+import {
+  BrainCircuit, Loader2, MailCheck,
+  ArrowLeft, RefreshCw, ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 
 type Step = "credentials" | "otp";
 
 export default function LoginPage() {
+  const [otpEnabled, setOtpEnabled] = useState<boolean | null>(null); // null = loading
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,41 +34,49 @@ export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  // ── Step 1 — validate credentials & send OTP ──────────────────────────
+  // Pre-fetch OTP configuration status once on mount
+  useEffect(() => {
+    fetch("/api/auth/otp-status")
+      .then(r => r.json())
+      .then(data => setOtpEnabled(!!data.enabled))
+      .catch(() => setOtpEnabled(false));
+  }, []);
+
+  // ── Step 1 — credentials ──────────────────────────────────────────────
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      if (otpEnabled) {
+        // OTP path: send code then advance to step 2
+        const res = await fetch("/api/auth/send-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (!res.ok) {
-        // SMTP not configured → fall back to direct password login
-        if (res.status === 503) {
-          await directSignIn();
+        if (!res.ok) {
+          toast({
+            title: res.status === 401 ? "Authentication Failed" : "Send Failed",
+            description: data.message || "Could not send OTP. Please try again.",
+            variant: "destructive",
+          });
           return;
         }
-        toast({
-          title: "Authentication Failed",
-          description: data.message || "Invalid email or password.",
-          variant: "destructive",
-        });
-        return;
-      }
 
-      // OTP sent — advance to step 2
-      setOtpCode("");
-      setStep("otp");
-      toast({
-        title: "Code Sent",
-        description: `A 6-digit code was sent to ${email}.`,
-      });
+        setOtpCode("");
+        setStep("otp");
+        toast({
+          title: "Code Sent",
+          description: `A 6-digit code was sent to ${email}.`,
+        });
+      } else {
+        // Direct sign-in (SMTP not configured)
+        await doSignIn(email, password);
+      }
     } catch {
       toast({
         title: "Error",
@@ -76,30 +88,7 @@ export default function LoginPage() {
     }
   };
 
-  // Direct sign-in (fallback when SMTP is not configured)
-  const directSignIn = async () => {
-    try {
-      const res = await signIn("credentials", {
-        redirect: false,
-        email,
-        password,
-      });
-      if (res?.error) {
-        toast({
-          title: "Authentication Failed",
-          description: "Invalid email or password.",
-          variant: "destructive",
-        });
-      } else {
-        router.push("/");
-        router.refresh();
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Step 2 — verify OTP ───────────────────────────────────────────────
+  // ── Step 2 — OTP verify ───────────────────────────────────────────────
   const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (otpCode.length !== 6) {
@@ -111,14 +100,12 @@ export default function LoginPage() {
       return;
     }
     setLoading(true);
-
     try {
       const res = await signIn("credentials", {
         redirect: false,
         email,
         otpToken: otpCode,
       });
-
       if (res?.error) {
         toast({
           title: "Verification Failed",
@@ -130,17 +117,13 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch {
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
 
-  // Resend OTP
+  // ── Resend OTP ────────────────────────────────────────────────────────
   const handleResend = async () => {
     setResending(true);
     try {
@@ -167,9 +150,38 @@ export default function LoginPage() {
     }
   };
 
+  // ── Shared direct sign-in ─────────────────────────────────────────────
+  const doSignIn = async (emailVal: string, passwordVal: string) => {
+    const res = await signIn("credentials", {
+      redirect: false,
+      email: emailVal,
+      password: passwordVal,
+    });
+    if (res?.error) {
+      toast({
+        title: "Authentication Failed",
+        description: "Invalid email or password.",
+        variant: "destructive",
+      });
+    } else {
+      router.push("/");
+      router.refresh();
+    }
+  };
+
+  // ── Loading state while fetching OTP status ───────────────────────────
+  if (otpEnabled === null) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-accent opacity-40" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
+
         {/* Logo */}
         <div className="flex flex-col items-center justify-center text-center space-y-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/10 border border-accent/20">
@@ -183,8 +195,18 @@ export default function LoginPage() {
         {step === "credentials" && (
           <Card className="glass-panel border-border/50">
             <CardHeader>
-              <CardTitle>Operator Sign In</CardTitle>
-              <CardDescription>Enter your credentials to access your agents.</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Operator Sign In</CardTitle>
+                  <CardDescription>Enter your credentials to access your agents.</CardDescription>
+                </div>
+                {otpEnabled && (
+                  <div className="flex items-center gap-1 text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 rounded-full px-2.5 py-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    OTP Enabled
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <form onSubmit={handleCredentialsSubmit} autoComplete="on">
               <CardContent className="space-y-4">
@@ -217,7 +239,9 @@ export default function LoginPage() {
               <CardFooter className="flex flex-col gap-4">
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {loading ? "Verifying..." : "Continue"}
+                  {loading
+                    ? (otpEnabled ? "Sending code..." : "Signing in...")
+                    : (otpEnabled ? "Continue → Verify by Email" : "Sign In")}
                 </Button>
                 <div className="text-center text-sm text-muted-foreground w-full">
                   Don&apos;t have an operator profile?{" "}
@@ -304,6 +328,7 @@ export default function LoginPage() {
             </form>
           </Card>
         )}
+
       </div>
     </div>
   );
