@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, saveChat, getChat } from "@/lib/store";
+import { Agent, Skill, DEFAULT_SKILLS, DEFAULT_SETTINGS, SystemSettings, DatabaseConnection, saveChat, getChat } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download, Copy, Check, FileDown } from "lucide-react";
+import { Send, Bot, User, Zap, Loader2, Sparkles, BrainCircuit, ListOrdered, Paperclip, X, Download, Copy, Check, FileDown, Database, FolderClosed, File } from "lucide-react";
 import { agentConversationToolExecution } from "@/ai/flows/agent-conversation-tool-execution";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
@@ -33,6 +33,7 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
   const { toast } = useToast();
 
   const { data: customSkills = [] } = useCollection<Skill>(null, 'skills');
+  const { data: dbConnections = [] } = useCollection<DatabaseConnection>(null, 'databases');
   const { data: settingsData } = useDoc<SystemSettings>(null);
   const settings = settingsData || DEFAULT_SETTINGS;
 
@@ -130,16 +131,26 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
         .filter(m => m.role === 'user' || m.role === 'model')
         .map(m => ({ role: m.role, content: m.content }));
 
-      // Fetch file context from folders assigned to this agent
+      // Fetch file context: whole folders + individual files (deduplicated)
       let fileContext = '';
-      if (agent.fileFolders && agent.fileFolders.length > 0) {
-        try {
+      try {
+        const contextParts: string[] = [];
+
+        if (agent.fileFolders && agent.fileFolders.length > 0) {
           const res = await fetch(`/api/files?type=folder-context&folderIds=${agent.fileFolders.join(',')}`);
           const json = await res.json();
-          fileContext = json.data || '';
-        } catch {
-          // Non-fatal — agent proceeds without file context
+          if (json.data) contextParts.push(json.data);
         }
+
+        if (agent.files && agent.files.length > 0) {
+          const res = await fetch(`/api/files?type=files-context&fileIds=${agent.files.join(',')}`);
+          const json = await res.json();
+          if (json.data) contextParts.push(json.data);
+        }
+
+        fileContext = contextParts.join('\n\n');
+      } catch {
+        // Non-fatal — agent proceeds without file context
       }
 
       const result = await agentConversationToolExecution({
@@ -447,6 +458,8 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
           </header>
           <ScrollArea className="flex-1 p-6">
             <div className="space-y-8">
+
+              {/* Active Persona */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2">
                   <BrainCircuit className="size-4 text-accent" />
@@ -457,28 +470,87 @@ export default function ChatInterface({ agent }: { agent: Agent }) {
                 </p>
               </section>
 
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <ListOrdered className="size-4 text-accent" />
-                  <h4 className="text-xs font-bold uppercase tracking-widest">Skill Priority</h4>
-                </div>
-                <div className="space-y-2">
-                  {agent.skills?.map((sId, index) => {
-                    const skill = allSkills.find(s => s.id === sId);
-                    return (
-                      <div key={sId} className={`p-3 rounded-lg border flex items-center justify-between ${index === 0 ? 'bg-accent/10 border-accent/30' : 'bg-secondary/30 border-border/50'}`}>
-                        <div className="flex items-center gap-3">
-                          <span className={`text-[10px] font-bold size-5 rounded-full flex items-center justify-center ${index === 0 ? 'bg-accent text-white' : 'bg-secondary text-muted-foreground'}`}>
-                            {index + 1}
-                          </span>
-                          <span className="text-xs font-mono">{skill?.name || sId}</span>
+              {/* Skill Priority */}
+              {(agent.skills?.length ?? 0) > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <ListOrdered className="size-4 text-accent" />
+                    <h4 className="text-xs font-bold uppercase tracking-widest">Skill Pipeline</h4>
+                  </div>
+                  <div className="space-y-2">
+                    {agent.skills?.map((sId, index) => {
+                      const skill = allSkills.find(s => s.id === sId);
+                      return (
+                        <div key={sId} className={`p-3 rounded-lg border flex items-center justify-between ${index === 0 ? 'bg-accent/10 border-accent/30' : 'bg-secondary/30 border-border/50'}`}>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-[10px] font-bold size-5 rounded-full flex items-center justify-center ${index === 0 ? 'bg-accent text-white' : 'bg-secondary text-muted-foreground'}`}>
+                              {index + 1}
+                            </span>
+                            <span className="text-xs font-mono">{skill?.name || sId}</span>
+                          </div>
+                          <Zap className={`size-3 ${index === 0 ? 'text-accent' : 'text-muted-foreground/30'}`} />
                         </div>
-                        <Zap className={`size-3 ${index === 0 ? 'text-accent' : 'text-muted-foreground/30'}`} />
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* Connected Databases */}
+              {(agent.databases?.length ?? 0) > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Database className="size-4 text-accent" />
+                    <h4 className="text-xs font-bold uppercase tracking-widest">Data Sources</h4>
+                  </div>
+                  <div className="space-y-2">
+                    {agent.databases?.map(dbId => {
+                      const conn = dbConnections.find(c => c.id === dbId);
+                      return (
+                        <div key={dbId} className="p-3 rounded-lg border bg-secondary/30 border-border/50 flex items-center gap-3">
+                          <Database className="size-3.5 text-accent shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-mono truncate">{conn?.name || dbId}</p>
+                            {conn && <p className="text-[9px] text-muted-foreground uppercase">{conn.type}</p>}
+                          </div>
+                          {conn?.readOnly && (
+                            <span className="text-[9px] text-green-500 border border-green-500/30 rounded px-1">RO</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* File Sources */}
+              {((agent.fileFolders?.length ?? 0) > 0 || (agent.files?.length ?? 0) > 0) && (
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <FolderClosed className="size-4 text-accent" />
+                    <h4 className="text-xs font-bold uppercase tracking-widest">File Sources</h4>
+                  </div>
+                  <div className="space-y-2">
+                    {agent.fileFolders?.map(folderId => (
+                      <div key={folderId} className="p-3 rounded-lg border bg-secondary/30 border-border/50 flex items-center gap-3">
+                        <FolderClosed className="size-3.5 text-blue-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono truncate text-muted-foreground">{folderId}</p>
+                        </div>
+                        <span className="text-[9px] text-blue-400/70 border border-blue-400/20 rounded px-1">folder</span>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
+                    ))}
+                    {agent.files?.map(fileId => (
+                      <div key={fileId} className="p-3 rounded-lg border bg-secondary/30 border-border/50 flex items-center gap-3">
+                        <File className="size-3.5 text-muted-foreground shrink-0" />
+                        <p className="text-xs font-mono truncate text-muted-foreground flex-1">{fileId}</p>
+                        <span className="text-[9px] text-muted-foreground border border-border/50 rounded px-1">file</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
             </div>
           </ScrollArea>
         </aside>

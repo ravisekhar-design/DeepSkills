@@ -24,7 +24,8 @@ export interface Agent {
   parameters: Record<string, any>;
   skills: string[]; // Skill IDs
   databases?: string[]; // DatabaseConnection IDs
-  fileFolders?: string[]; // FileFolder IDs
+  fileFolders?: string[]; // FileFolder IDs (entire folder — all files included)
+  files?: string[]; // Individual FileRecord IDs
   status: 'active' | 'inactive';
   userId?: string;
   updatedAt?: any;

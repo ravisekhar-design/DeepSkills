@@ -66,7 +66,8 @@ model Agent {
   parameters  String   // stored as JSON string
   skills      String   // stored as JSON string array of IDs
   databases   String?  // stored as JSON string array of DatabaseConnection IDs
-  fileFolders String?  // stored as JSON string array of FileFolder IDs
+  fileFolders String?  // stored as JSON string array of FileFolder IDs (entire folder)
+  files       String?  // stored as JSON string array of individual FileRecord IDs
   status      String   @default("active")
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

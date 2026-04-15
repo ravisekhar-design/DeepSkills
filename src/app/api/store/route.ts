@@ -31,6 +31,7 @@ export async function GET(request: Request) {
                 skills: (() => { try { return JSON.parse(a.skills); } catch { return []; } })(),
                 databases: (() => { try { return JSON.parse((a as any).databases || '[]'); } catch { return []; } })(),
                 fileFolders: (() => { try { return JSON.parse((a as any).fileFolders || '[]'); } catch { return []; } })(),
+                files: (() => { try { return JSON.parse((a as any).files || '[]'); } catch { return []; } })(),
                 status: a.status,
                 updatedAt: a.updatedAt.getTime(),
             }));
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
                             skills: Array.isArray(a.skills) ? JSON.stringify(a.skills) : (a.skills || '[]'),
                             databases: Array.isArray(a.databases) ? JSON.stringify(a.databases) : (a.databases || '[]'),
                             fileFolders: Array.isArray(a.fileFolders) ? JSON.stringify(a.fileFolders) : (a.fileFolders || '[]'),
+                            files: Array.isArray(a.files) ? JSON.stringify(a.files) : (a.files || '[]'),
                             status: a.status || 'active',
                         },
                         create: {
@@ -128,6 +130,7 @@ export async function POST(request: Request) {
                             skills: Array.isArray(a.skills) ? JSON.stringify(a.skills) : (a.skills || '[]'),
                             databases: Array.isArray(a.databases) ? JSON.stringify(a.databases) : (a.databases || '[]'),
                             fileFolders: Array.isArray(a.fileFolders) ? JSON.stringify(a.fileFolders) : (a.fileFolders || '[]'),
+                            files: Array.isArray(a.files) ? JSON.stringify(a.files) : (a.files || '[]'),
                             status: a.status || 'active',
                         }
                     }))

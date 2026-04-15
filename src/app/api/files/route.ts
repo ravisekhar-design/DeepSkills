@@ -64,6 +64,31 @@ export async function GET(request: Request) {
       return NextResponse.json({ data: { id: file.id, name: file.name, content: file.content, mimeType: file.mimeType } });
     }
 
+    // ?type=files-context&fileIds=a,b,c  → fetch specific files by ID
+    if (type === 'files-context') {
+      const fileIds = (searchParams.get('fileIds') || '').split(',').filter(Boolean);
+      if (!fileIds.length) return NextResponse.json({ data: '' });
+
+      const files = await (prisma as any).fileRecord.findMany({
+        where: { id: { in: fileIds }, userId },
+        select: { id: true, name: true, content: true, mimeType: true, totalChunks: true },
+      });
+
+      const contextBlocks: string[] = [];
+      for (const file of files) {
+        let content = file.content;
+        if (!content && file.totalChunks > 0) {
+          const firstChunk = await (prisma as any).fileChunk.findFirst({
+            where: { fileId: file.id },
+            orderBy: { idx: 'asc' },
+          });
+          content = firstChunk?.content || '';
+        }
+        contextBlocks.push(`--- File: ${file.name} ---\n${content || ''}\n---`);
+      }
+      return NextResponse.json({ data: contextBlocks.join('\n\n') });
+    }
+
     if (type === 'folder-context') {
       const folderIds = (searchParams.get('folderIds') || '').split(',').filter(Boolean);
       if (!folderIds.length) return NextResponse.json({ data: '' });
