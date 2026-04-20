@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { Checkbox } from "@/components/ui/checkbox";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { agentPersonaGeneration } from "@/ai/flows/agent-persona-generation";
 import { useToast } from "@/hooks/use-toast";
@@ -469,9 +469,9 @@ export default function AgentsPage() {
 
                 {/* ── Skill Pipeline ────────────────────────────────────── */}
                 <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
-                  <div className="space-y-4 overflow-hidden flex flex-col">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Modules</Label>
-                    <ScrollArea className="flex-1 pr-4">
+                  <div className="min-h-0 flex flex-col gap-3">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-4">
                       <div className="space-y-2">
                         {availableSkills.map((skill) => {
                           const active = selectedSkills.includes(skill.id);
@@ -481,7 +481,6 @@ export default function AgentsPage() {
                               className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${active ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
                               onClick={() => toggleSkill(skill.id)}
                             >
-                              {/* Checkbox is presentational only; click is on the row div */}
                               <div className={`size-4 rounded flex items-center justify-center border shrink-0 mt-0.5 ${active ? 'bg-accent border-accent' : 'border-border'}`}>
                                 {active && <Check className="size-2.5 text-white" />}
                               </div>
@@ -495,9 +494,9 @@ export default function AgentsPage() {
                       </div>
                     </ScrollArea>
                   </div>
-                  <div className="space-y-4 overflow-hidden flex flex-col bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Active Pipeline</Label>
-                    <ScrollArea className="flex-1 pr-2">
+                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Pipeline</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-2">
                       <div className="space-y-2">
                         {selectedSkills.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No skills selected yet</p>
@@ -506,7 +505,7 @@ export default function AgentsPage() {
                           const skill = availableSkills.find(s => s.id === skillId);
                           return (
                             <div key={skillId} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border shadow-sm group">
-                              <div className="size-6 rounded bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent">
+                              <div className="size-6 rounded bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent shrink-0">
                                 {index + 1}
                               </div>
                               <div className="flex-1 min-w-0 text-xs font-bold truncate">
@@ -531,48 +530,47 @@ export default function AgentsPage() {
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
                 <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
                   {/* LEFT: Available Databases */}
-                  <div className="space-y-4 overflow-hidden flex flex-col">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Databases</Label>
-                    <ScrollArea className="flex-1 pr-4">
-                      {dbConnections.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
-                          <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
-                          <p className="text-sm font-bold mb-1">No database connections</p>
-                          <p className="text-xs text-muted-foreground">Add connections in the <strong>Databases</strong> page first.</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {dbConnections.map((conn: DatabaseConnection) => {
+                  <div className="min-h-0 flex flex-col gap-3">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                      <div className="space-y-2">
+                        {dbConnections.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                            <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
+                            <p className="text-sm font-bold mb-1">No database connections</p>
+                            <p className="text-xs text-muted-foreground">Add connections in the <strong>Databases</strong> page first.</p>
+                          </div>
+                        ) : (
+                          dbConnections.map((conn: DatabaseConnection) => {
                             const active = selectedDatabases.includes(conn.id);
                             return (
                               <div
                                 key={conn.id}
-                                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${active ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
+                                className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${active ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
                                 onClick={() => setSelectedDatabases(prev =>
                                   prev.includes(conn.id) ? prev.filter(id => id !== conn.id) : [...prev, conn.id]
                                 )}
                               >
-                                <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${active ? 'bg-accent border-accent' : 'border-border'}`}>
+                                <div className={`size-4 rounded flex items-center justify-center border shrink-0 mt-0.5 ${active ? 'bg-accent border-accent' : 'border-border'}`}>
                                   {active && <Check className="size-2.5 text-white" />}
                                 </div>
-                                <Database className="size-4 text-accent shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-bold truncate">{conn.name}</p>
-                                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
+                                  <p className="text-[10px] text-muted-foreground line-clamp-1">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
                                 </div>
-                                {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500">Read-only</Badge>}
+                                {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500 shrink-0">Read-only</Badge>}
                               </div>
                             );
-                          })}
-                        </div>
-                      )}
+                          })
+                        )}
+                      </div>
                     </ScrollArea>
                   </div>
 
                   {/* RIGHT: Connected Sources */}
-                  <div className="space-y-4 overflow-hidden flex flex-col bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Connected Sources</Label>
-                    <ScrollArea className="flex-1 pr-2">
+                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Connected Sources</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-2">
                       <div className="space-y-2">
                         {selectedDatabases.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No databases selected yet</p>
@@ -605,22 +603,22 @@ export default function AgentsPage() {
                 {/* ── Files & Folders ───────────────────────────────────── */}
                 <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
                   {/* LEFT: Available Folders */}
-                  <div className="space-y-4 overflow-hidden flex flex-col">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Folders &amp; Files</Label>
-                    <ScrollArea className="flex-1 pr-4">
-                      {foldersLoading ? (
-                        <div className="flex items-center justify-center py-12">
-                          <Loader2 className="size-6 animate-spin text-accent opacity-50" />
-                        </div>
-                      ) : fileFolders.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
-                          <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
-                          <p className="text-sm font-bold mb-1">No file folders</p>
-                          <p className="text-xs text-muted-foreground">Create folders in the <strong>Databases → File Storage</strong> tab first.</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {fileFolders.map((folder: FileFolder) => {
+                  <div className="min-h-0 flex flex-col gap-3">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                      <div className="space-y-2">
+                        {foldersLoading ? (
+                          <div className="flex items-center justify-center py-12">
+                            <Loader2 className="size-6 animate-spin text-accent opacity-50" />
+                          </div>
+                        ) : fileFolders.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                            <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
+                            <p className="text-sm font-bold mb-1">No file folders</p>
+                            <p className="text-xs text-muted-foreground">Create folders in the <strong>Databases → File Storage</strong> tab first.</p>
+                          </div>
+                        ) : (
+                          fileFolders.map((folder: FileFolder) => {
                             const isExpanded = expandedFolderIds.has(folder.id);
                             const isLoadingFiles = loadingFolderIds.has(folder.id);
                             const fullySelected = isFolderFullySelected(folder.id);
@@ -629,7 +627,7 @@ export default function AgentsPage() {
 
                             return (
                               <div key={folder.id} className="rounded-xl border border-border overflow-hidden">
-                                {/* Folder card — click = toggle selection (same pattern as skill module cards) */}
+                                {/* Folder card — click = toggle selection, chevron = expand files */}
                                 <div
                                   className={`flex items-start gap-3 p-3 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10 border-accent/40' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
                                   onClick={() => toggleFolder(folder.id)}
@@ -638,20 +636,14 @@ export default function AgentsPage() {
                                     {fullySelected && <Check className="size-2.5 text-white" />}
                                     {partial && <Minus className="size-2.5 text-accent" />}
                                   </div>
-                                  {isExpanded ? (
-                                    <FolderOpen className="size-4 text-blue-400 shrink-0 mt-0.5" />
-                                  ) : (
-                                    <FolderClosed className="size-4 text-blue-400 shrink-0 mt-0.5" />
-                                  )}
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-bold truncate">{folder.name}</p>
-                                    <p className="text-[10px] text-muted-foreground">
+                                    <p className="text-[10px] text-muted-foreground line-clamp-1">
                                       {folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}
                                       {fullySelected && <span className="ml-1.5 text-accent">· entire folder</span>}
                                       {partial && <span className="ml-1.5 text-accent/70">· partial</span>}
                                     </p>
                                   </div>
-                                  {/* Expand chevron — stopPropagation so it doesn't trigger folder selection */}
                                   <button
                                     className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground transition-colors mt-0.5"
                                     onClick={(e) => { e.stopPropagation(); toggleFolderExpand(folder.id); }}
@@ -660,7 +652,7 @@ export default function AgentsPage() {
                                   </button>
                                 </div>
 
-                                {/* File sub-list (visible when expanded) */}
+                                {/* File sub-list when expanded */}
                                 {isExpanded && (
                                   <div className="border-t border-border bg-background/30">
                                     {isLoadingFiles ? (
@@ -697,16 +689,16 @@ export default function AgentsPage() {
                                 )}
                               </div>
                             );
-                          })}
-                        </div>
-                      )}
+                          })
+                        )}
+                      </div>
                     </ScrollArea>
                   </div>
 
                   {/* RIGHT: Active Context */}
-                  <div className="space-y-4 overflow-hidden flex flex-col bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Active Context</Label>
-                    <ScrollArea className="flex-1 pr-2">
+                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Context</Label>
+                    <ScrollArea className="flex-1 min-h-0 pr-2">
                       <div className="space-y-2">
                         {selectedFolders.length === 0 && selectedFiles.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No files selected yet</p>
