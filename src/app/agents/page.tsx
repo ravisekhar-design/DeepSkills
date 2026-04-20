@@ -17,7 +17,7 @@ import {
   Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap,
   BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn,
   Database, Code2, FolderOpen, ChevronRight, ChevronDown,
-  File, FolderClosed, Check, Minus
+  File, FolderClosed, Check, Minus, X
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -529,180 +529,257 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
-                <TabsContent value="datasources" className="mt-0 h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold">Connected Databases</p>
-                      <p className="text-xs text-muted-foreground">Select which databases this agent can query during chat.</p>
-                    </div>
-                    <Badge variant="outline" className="text-accent border-accent/30 text-[10px]">{selectedDatabases.length} selected</Badge>
+                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                  {/* LEFT: Available Databases */}
+                  <div className="space-y-4 overflow-hidden flex flex-col">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Databases</Label>
+                    <ScrollArea className="flex-1 pr-4">
+                      {dbConnections.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                          <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
+                          <p className="text-sm font-bold mb-1">No database connections</p>
+                          <p className="text-xs text-muted-foreground">Add connections in the <strong>Databases</strong> page first.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {dbConnections.map((conn: DatabaseConnection) => {
+                            const active = selectedDatabases.includes(conn.id);
+                            return (
+                              <div
+                                key={conn.id}
+                                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${active ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
+                                onClick={() => setSelectedDatabases(prev =>
+                                  prev.includes(conn.id) ? prev.filter(id => id !== conn.id) : [...prev, conn.id]
+                                )}
+                              >
+                                <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${active ? 'bg-accent border-accent' : 'border-border'}`}>
+                                  {active && <Check className="size-2.5 text-white" />}
+                                </div>
+                                <Database className="size-4 text-accent shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-bold truncate">{conn.name}</p>
+                                  <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
+                                </div>
+                                {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500">Read-only</Badge>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </ScrollArea>
                   </div>
-                  {dbConnections.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
-                      <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
-                      <p className="text-sm font-bold mb-1">No database connections</p>
-                      <p className="text-xs text-muted-foreground">Add connections in the <strong>Databases</strong> page first.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {dbConnections.map((conn: DatabaseConnection) => {
-                        const active = selectedDatabases.includes(conn.id);
-                        return (
-                          <div
-                            key={conn.id}
-                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${active ? 'bg-accent/10 border-accent/40' : 'bg-secondary/10 border-border hover:bg-secondary/20'}`}
-                            onClick={() => setSelectedDatabases(prev =>
-                              prev.includes(conn.id) ? prev.filter(id => id !== conn.id) : [...prev, conn.id]
-                            )}
-                          >
-                            {/* Custom checkbox to avoid double-fire */}
-                            <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${active ? 'bg-accent border-accent' : 'border-border'}`}>
-                              {active && <Check className="size-2.5 text-white" />}
+
+                  {/* RIGHT: Connected Sources */}
+                  <div className="space-y-4 overflow-hidden flex flex-col bg-secondary/10 rounded-2xl p-4 border border-border">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Connected Sources</Label>
+                    <ScrollArea className="flex-1 pr-2">
+                      <div className="space-y-2">
+                        {selectedDatabases.length === 0 && (
+                          <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No databases selected yet</p>
+                        )}
+                        {selectedDatabases.map((dbId) => {
+                          const conn = dbConnections.find((c: DatabaseConnection) => c.id === dbId);
+                          return (
+                            <div key={dbId} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border shadow-sm group">
+                              <div className="size-6 rounded bg-accent/20 flex items-center justify-center shrink-0">
+                                <Database className="size-3.5 text-accent" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold truncate">{conn?.name || dbId}</p>
+                                {conn && <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}</p>}
+                              </div>
+                              <button
+                                className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                                onClick={() => setSelectedDatabases(prev => prev.filter(id => id !== dbId))}
+                              >
+                                <X className="size-3" />
+                              </button>
                             </div>
-                            <Database className="size-4 text-accent shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold truncate">{conn.name}</p>
-                              <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{conn.type}{conn.database ? ` · ${conn.database}` : ''}</p>
-                            </div>
-                            {conn.readOnly && <Badge variant="outline" className="text-[9px] border-green-500/30 text-green-500">Read-only</Badge>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </div>
                 </TabsContent>
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
-                <TabsContent value="files" className="mt-0 h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold">File Storage</p>
-                      <p className="text-xs text-muted-foreground">
-                        Select entire folders or expand them to pick specific files.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedFolders.length > 0 && (
-                        <Badge variant="outline" className="text-blue-400 border-blue-400/30 text-[10px]">
-                          <FolderClosed className="size-2.5 mr-1" />{selectedFolders.length} folder{selectedFolders.length !== 1 ? 's' : ''}
-                        </Badge>
+                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                  {/* LEFT: Folder tree for selection */}
+                  <div className="space-y-4 overflow-hidden flex flex-col">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Folders &amp; Files</Label>
+                    <ScrollArea className="flex-1 pr-4">
+                      {foldersLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="size-6 animate-spin text-accent opacity-50" />
+                        </div>
+                      ) : fileFolders.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
+                          <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
+                          <p className="text-sm font-bold mb-1">No file folders</p>
+                          <p className="text-xs text-muted-foreground">
+                            Create folders and upload files in the <strong>Databases → File Storage</strong> tab first.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {fileFolders.map((folder: FileFolder) => {
+                            const isExpanded = expandedFolderIds.has(folder.id);
+                            const isLoadingFiles = loadingFolderIds.has(folder.id);
+                            const fullySelected = isFolderFullySelected(folder.id);
+                            const partial = isFolderPartial(folder.id);
+                            const files = folderFilesCache.get(folder.id) || [];
+
+                            return (
+                              <div key={folder.id} className="rounded-xl border border-border overflow-hidden">
+                                {/* Folder row */}
+                                <div
+                                  className={`flex items-center gap-2 px-3 py-2.5 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
+                                >
+                                  {/* Folder-level checkbox */}
+                                  <div
+                                    className={`size-4 rounded flex items-center justify-center border shrink-0 cursor-pointer ${fullySelected ? 'bg-accent border-accent' : partial ? 'bg-accent/30 border-accent/50' : 'border-border'}`}
+                                    onClick={() => toggleFolder(folder.id)}
+                                  >
+                                    {fullySelected && <Check className="size-2.5 text-white" />}
+                                    {partial && <Minus className="size-2.5 text-accent" />}
+                                  </div>
+
+                                  {/* Expand toggle */}
+                                  <button
+                                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                    onClick={() => toggleFolderExpand(folder.id)}
+                                  >
+                                    <span className="shrink-0 text-muted-foreground">
+                                      {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                                    </span>
+                                    {isExpanded ? (
+                                      <FolderOpen className="size-4 text-blue-400 shrink-0" />
+                                    ) : (
+                                      <FolderClosed className="size-4 text-blue-400 shrink-0" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-xs font-bold truncate block">{folder.name}</span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}
+                                        {fullySelected && <span className="ml-1.5 text-accent">· entire folder</span>}
+                                        {partial && <span className="ml-1.5 text-accent/70">· partial</span>}
+                                      </span>
+                                    </div>
+                                  </button>
+                                </div>
+
+                                {/* File list (visible when expanded) */}
+                                {isExpanded && (
+                                  <div className="border-t border-border bg-background/30">
+                                    {isLoadingFiles ? (
+                                      <div className="flex items-center justify-center py-4">
+                                        <Loader2 className="size-4 animate-spin text-accent opacity-50 mr-2" />
+                                        <span className="text-xs text-muted-foreground">Loading files...</span>
+                                      </div>
+                                    ) : files.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground text-center py-4 opacity-50">
+                                        No files in this folder
+                                      </p>
+                                    ) : (
+                                      <div className="p-2 space-y-1">
+                                        {files.map((file: FileRecord) => {
+                                          const fileSelected = selectedFolders.includes(folder.id) || selectedFiles.includes(file.id);
+                                          const coveredByFolder = selectedFolders.includes(folder.id);
+                                          return (
+                                            <div
+                                              key={file.id}
+                                              className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all ${fileSelected ? 'bg-accent/10' : 'hover:bg-secondary/20'}`}
+                                              onClick={() => toggleFile(file.id, folder.id)}
+                                            >
+                                              <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${fileSelected ? 'bg-accent border-accent' : 'border-border'}`}>
+                                                {fileSelected && <Check className="size-2.5 text-white" />}
+                                              </div>
+                                              <File className="size-3.5 text-muted-foreground shrink-0" />
+                                              <span className="text-xs truncate flex-1">{file.name}</span>
+                                              {coveredByFolder && (
+                                                <span className="text-[9px] text-accent/60 shrink-0">via folder</span>
+                                              )}
+                                              {file.size > 0 && (
+                                                <span className="text-[9px] text-muted-foreground shrink-0">
+                                                  {(file.size / 1024).toFixed(0)} KB
+                                                </span>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                      {selectedFiles.length > 0 && (
-                        <Badge variant="outline" className="text-accent border-accent/30 text-[10px]">
-                          <File className="size-2.5 mr-1" />{selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''}
-                        </Badge>
-                      )}
-                    </div>
+                    </ScrollArea>
                   </div>
 
-                  {foldersLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="size-6 animate-spin text-accent opacity-50" />
-                    </div>
-                  ) : fileFolders.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
-                      <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
-                      <p className="text-sm font-bold mb-1">No file folders</p>
-                      <p className="text-xs text-muted-foreground">
-                        Create folders and upload files in the <strong>Databases → File Storage</strong> tab first.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      {fileFolders.map((folder: FileFolder) => {
-                        const isExpanded = expandedFolderIds.has(folder.id);
-                        const isLoadingFiles = loadingFolderIds.has(folder.id);
-                        const fullySelected = isFolderFullySelected(folder.id);
-                        const partial = isFolderPartial(folder.id);
-                        const files = folderFilesCache.get(folder.id) || [];
-
-                        return (
-                          <div key={folder.id} className="rounded-xl border border-border overflow-hidden">
-                            {/* Folder row */}
-                            <div
-                              className={`flex items-center gap-2 px-3 py-2.5 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
-                            >
-                              {/* Folder-level checkbox */}
-                              <div
-                                className={`size-4 rounded flex items-center justify-center border shrink-0 cursor-pointer ${fullySelected ? 'bg-accent border-accent' : partial ? 'bg-accent/30 border-accent/50' : 'border-border'}`}
-                                onClick={() => toggleFolder(folder.id)}
-                              >
-                                {fullySelected && <Check className="size-2.5 text-white" />}
-                                {partial && <Minus className="size-2.5 text-accent" />}
+                  {/* RIGHT: Active Context */}
+                  <div className="space-y-4 overflow-hidden flex flex-col bg-secondary/10 rounded-2xl p-4 border border-border">
+                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Active Context</Label>
+                    <ScrollArea className="flex-1 pr-2">
+                      <div className="space-y-2">
+                        {selectedFolders.length === 0 && selectedFiles.length === 0 && (
+                          <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No files selected yet</p>
+                        )}
+                        {selectedFolders.map((folderId) => {
+                          const folder = fileFolders.find((f: FileFolder) => f.id === folderId);
+                          return (
+                            <div key={folderId} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border shadow-sm group">
+                              <div className="size-6 rounded bg-blue-400/20 flex items-center justify-center shrink-0">
+                                <FolderClosed className="size-3.5 text-blue-400" />
                               </div>
-
-                              {/* Expand toggle */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold truncate">{folder?.name || folderId}</p>
+                                <p className="text-[10px] text-muted-foreground">Entire folder</p>
+                              </div>
                               <button
-                                className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                onClick={() => toggleFolderExpand(folder.id)}
+                                className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                                onClick={() => toggleFolder(folderId)}
                               >
-                                <span className="shrink-0 text-muted-foreground">
-                                  {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                                </span>
-                                {isExpanded ? (
-                                  <FolderOpen className="size-4 text-blue-400 shrink-0" />
-                                ) : (
-                                  <FolderClosed className="size-4 text-blue-400 shrink-0" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-xs font-bold truncate block">{folder.name}</span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}
-                                    {fullySelected && <span className="ml-1.5 text-accent">· entire folder selected</span>}
-                                    {partial && <span className="ml-1.5 text-accent/70">· partial selection</span>}
-                                  </span>
-                                </div>
+                                <X className="size-3" />
                               </button>
                             </div>
-
-                            {/* File list (visible when expanded) */}
-                            {isExpanded && (
-                              <div className="border-t border-border bg-background/30">
-                                {isLoadingFiles ? (
-                                  <div className="flex items-center justify-center py-4">
-                                    <Loader2 className="size-4 animate-spin text-accent opacity-50 mr-2" />
-                                    <span className="text-xs text-muted-foreground">Loading files...</span>
-                                  </div>
-                                ) : files.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground text-center py-4 opacity-50">
-                                    No files in this folder
-                                  </p>
-                                ) : (
-                                  <div className="p-2 space-y-1">
-                                    {files.map((file: FileRecord) => {
-                                      const fileSelected = selectedFolders.includes(folder.id) || selectedFiles.includes(file.id);
-                                      const coveredByFolder = selectedFolders.includes(folder.id);
-                                      return (
-                                        <div
-                                          key={file.id}
-                                          className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all ${fileSelected ? 'bg-accent/10' : 'hover:bg-secondary/20'}`}
-                                          onClick={() => toggleFile(file.id, folder.id)}
-                                        >
-                                          <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${fileSelected ? 'bg-accent border-accent' : 'border-border'}`}>
-                                            {fileSelected && <Check className="size-2.5 text-white" />}
-                                          </div>
-                                          <File className="size-3.5 text-muted-foreground shrink-0" />
-                                          <span className="text-xs truncate flex-1">{file.name}</span>
-                                          {coveredByFolder && (
-                                            <span className="text-[9px] text-accent/60 shrink-0">via folder</span>
-                                          )}
-                                          {file.size > 0 && (
-                                            <span className="text-[9px] text-muted-foreground shrink-0">
-                                              {(file.size / 1024).toFixed(0)} KB
-                                            </span>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                          );
+                        })}
+                        {selectedFiles.map((fileId) => {
+                          let fileName = fileId;
+                          let folderName = '';
+                          for (const [fid, files] of folderFilesCache.entries()) {
+                            const match = files.find((f: FileRecord) => f.id === fileId);
+                            if (match) {
+                              fileName = match.name;
+                              const folder = fileFolders.find((f: FileFolder) => f.id === fid);
+                              folderName = folder?.name || '';
+                              break;
+                            }
+                          }
+                          return (
+                            <div key={fileId} className="flex items-center gap-3 p-3 rounded-lg bg-background border border-border shadow-sm group">
+                              <div className="size-6 rounded bg-accent/20 flex items-center justify-center shrink-0">
+                                <File className="size-3.5 text-accent" />
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold truncate">{fileName}</p>
+                                {folderName && <p className="text-[10px] text-muted-foreground truncate">{folderName}</p>}
+                              </div>
+                              <button
+                                className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                                onClick={() => setSelectedFiles(prev => prev.filter(id => id !== fileId))}
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </div>
                 </TabsContent>
               </div>
             </Tabs>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Plus, X, Play, Loader2 } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { Plus, X, Play, Loader2, ChevronDown, ChevronRight, Filter, ArrowUpDown, Tag, GripHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { ChartRenderer } from "@/components/chart-renderer";
-import type { GeneratedChartConfig, ChartType, ChartSeries } from "@/ai/flows/chart-generation";
+import type { GeneratedChartConfig, ChartType, ChartSeries, ChartFilter } from "@/ai/flows/chart-generation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,21 +15,23 @@ export interface Column { name: string; type: string; }
 
 type AggFunc = 'none' | 'sum' | 'avg' | 'count' | 'count_distinct' | 'min' | 'max';
 type SeriesType = 'bar' | 'line' | 'area';
+type SortOrder = 'default' | 'asc' | 'desc';
 
 interface MeasureConfig {
   id: string;
   field: string;
   agg: AggFunc;
-  seriesType: SeriesType; // used only for composed chart
+  seriesType: SeriesType;
+  color: string;
 }
 
 export interface ManualChartBuilderProps {
   columns: Column[];
-  rows: any[];                 // populated for file sources, [] for DB
+  rows: any[];
   sourceType: 'database' | 'file';
-  connectionId?: string;       // DB only
-  tableName?: string;          // DB only
-  dbType?: string;             // 'postgresql' | 'mysql' | …
+  connectionId?: string;
+  tableName?: string;
+  dbType?: string;
   onGenerate: (config: GeneratedChartConfig, title: string) => void;
 }
 
@@ -39,10 +43,10 @@ const AGG_OPTIONS: { value: AggFunc; label: string }[] = [
   { value: 'sum',            label: 'SUM' },
   { value: 'avg',            label: 'AVG' },
   { value: 'count',          label: 'COUNT' },
-  { value: 'count_distinct', label: 'COUNT DISTINCT' },
+  { value: 'count_distinct', label: 'COUNT DIST.' },
   { value: 'min',            label: 'MIN' },
   { value: 'max',            label: 'MAX' },
-  { value: 'none',           label: 'No Aggregation' },
+  { value: 'none',           label: 'None' },
 ];
 
 const SERIES_TYPE_OPTIONS: { value: SeriesType; label: string }[] = [
@@ -51,21 +55,66 @@ const SERIES_TYPE_OPTIONS: { value: SeriesType; label: string }[] = [
   { value: 'area', label: 'Area' },
 ];
 
-const CHART_TYPES: { type: ChartType; label: string; group: string }[] = [
-  { type: 'bar',           label: 'Bar',         group: 'Comparison' },
-  { type: 'horizontal_bar',label: 'H. Bar',      group: 'Comparison' },
-  { type: 'stacked_bar',   label: 'Stacked Bar', group: 'Comparison' },
-  { type: 'line',          label: 'Line',        group: 'Trend' },
-  { type: 'area',          label: 'Area',        group: 'Trend' },
-  { type: 'pie',           label: 'Pie',         group: 'Part-to-Whole' },
-  { type: 'donut',         label: 'Donut',       group: 'Part-to-Whole' },
-  { type: 'treemap',       label: 'Treemap',     group: 'Part-to-Whole' },
-  { type: 'funnel',        label: 'Funnel',      group: 'Sequential' },
-  { type: 'scatter',       label: 'Scatter',     group: 'Correlation' },
-  { type: 'radar',         label: 'Radar',       group: 'Multi-Metric' },
-  { type: 'radial_bar',    label: 'Radial Bar',  group: 'Progress' },
-  { type: 'composed',      label: 'Composed',    group: 'Advanced' },
+const FILTER_OPERATORS: { value: ChartFilter['operator']; label: string }[] = [
+  { value: '=',            label: '=' },
+  { value: '!=',           label: '≠' },
+  { value: '>',            label: '>' },
+  { value: '<',            label: '<' },
+  { value: '>=',           label: '≥' },
+  { value: '<=',           label: '≤' },
+  { value: 'contains',     label: 'contains' },
+  { value: 'not_contains', label: 'not contains' },
+  { value: 'is_empty',     label: 'is empty' },
+  { value: 'is_not_empty', label: 'not empty' },
 ];
+
+const CHART_TYPES: { type: ChartType; label: string; group: string }[] = [
+  { type: 'bar',            label: 'Bar',         group: 'Comparison' },
+  { type: 'horizontal_bar', label: 'H. Bar',      group: 'Comparison' },
+  { type: 'stacked_bar',    label: 'Stacked',     group: 'Comparison' },
+  { type: 'waterfall',      label: 'Waterfall',   group: 'Comparison' },
+  { type: 'line',           label: 'Line',        group: 'Trend' },
+  { type: 'area',           label: 'Area',        group: 'Trend' },
+  { type: 'pie',            label: 'Pie',         group: 'Part-to-Whole' },
+  { type: 'donut',          label: 'Donut',       group: 'Part-to-Whole' },
+  { type: 'treemap',        label: 'Treemap',     group: 'Part-to-Whole' },
+  { type: 'funnel',         label: 'Funnel',      group: 'Sequential' },
+  { type: 'scatter',        label: 'Scatter',     group: 'Correlation' },
+  { type: 'bubble',         label: 'Bubble',      group: 'Correlation' },
+  { type: 'radar',          label: 'Radar',       group: 'Multi-Metric' },
+  { type: 'heatmap',        label: 'Heatmap',     group: 'Multi-Metric' },
+  { type: 'radial_bar',     label: 'Radial Bar',  group: 'Progress' },
+  { type: 'gauge',          label: 'Gauge',       group: 'Progress' },
+  { type: 'composed',       label: 'Composed',    group: 'Advanced' },
+  { type: 'sankey',         label: 'Sankey',      group: 'Advanced' },
+];
+
+// Chart-specific UI configuration
+interface ChartUIConfig {
+  xLabel: string;
+  yLabel: string;
+  showGroupBy: boolean;
+  showTarget: boolean;   // sankey
+  maxMeasures: number;
+  measureLabels?: string[];
+}
+
+function getChartUIConfig(chartType: ChartType): ChartUIConfig {
+  switch (chartType) {
+    case 'sankey':
+      return { xLabel: 'Source Column', yLabel: 'Flow Value', showGroupBy: false, showTarget: true, maxMeasures: 1 };
+    case 'bubble':
+      return { xLabel: 'Label / Name', yLabel: 'Values', showGroupBy: false, showTarget: false, maxMeasures: 3, measureLabels: ['X Axis', 'Y Axis', 'Bubble Size'] };
+    case 'gauge':
+      return { xLabel: 'Label Column', yLabel: 'Value', showGroupBy: false, showTarget: false, maxMeasures: 2, measureLabels: ['Current Value', 'Max Value (opt.)'] };
+    case 'heatmap':
+      return { xLabel: 'X Axis', yLabel: 'Color Intensity', showGroupBy: true, showTarget: false, maxMeasures: 1 };
+    case 'pie': case 'donut': case 'treemap': case 'funnel': case 'radial_bar': case 'waterfall':
+      return { xLabel: 'Category / Label', yLabel: 'Value', showGroupBy: false, showTarget: false, maxMeasures: 1 };
+    default:
+      return { xLabel: 'X-Axis / Category', yLabel: 'Y-Axis / Values', showGroupBy: true, showTarget: false, maxMeasures: 6 };
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +134,7 @@ function aggValue(groupRows: any[], field: string, func: AggFunc): number {
   if (func === 'avg') return parseFloat((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(4));
   if (func === 'min') return Math.min(...nums);
   if (func === 'max') return Math.max(...nums);
-  return Number(groupRows[0]?.[field] ?? 0); // none
+  return Number(groupRows[0]?.[field] ?? 0);
 }
 
 function measureDataKey(m: MeasureConfig): string {
@@ -98,46 +147,82 @@ function measureDisplayName(m: MeasureConfig): string {
   return `${label}(${m.field})`;
 }
 
-/** Build chart data from in-memory rows (file source). */
+function applyFilters(rows: any[], filters: ChartFilter[]): any[] {
+  if (!filters.length) return rows;
+  return rows.filter(row =>
+    filters.every(f => {
+      if (!f.column || !f.operator) return true;
+      const val = row[f.column];
+      const strVal = String(val ?? '').toLowerCase();
+      const filterVal = (f.value ?? '').toLowerCase();
+      switch (f.operator) {
+        case '=': return String(val) === f.value;
+        case '!=': return String(val) !== f.value;
+        case '>': return Number(val) > Number(f.value);
+        case '<': return Number(val) < Number(f.value);
+        case '>=': return Number(val) >= Number(f.value);
+        case '<=': return Number(val) <= Number(f.value);
+        case 'contains': return strVal.includes(filterVal);
+        case 'not_contains': return !strVal.includes(filterVal);
+        case 'is_empty': return val == null || String(val) === '';
+        case 'is_not_empty': return val != null && String(val) !== '';
+        default: return true;
+      }
+    })
+  );
+}
+
+function sortRows(data: any[], xField: string, order: SortOrder): any[] {
+  if (order === 'default' || !xField) return data;
+  return [...data].sort((a, b) => {
+    const va = a[xField], vb = b[xField];
+    const cmp = typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va ?? '').localeCompare(String(vb ?? ''));
+    return order === 'asc' ? cmp : -cmp;
+  });
+}
+
 function buildFileData(
   rows: any[],
   xField: string,
   measures: MeasureConfig[],
   groupBy: string,
+  filters: ChartFilter[],
+  sortOrder: SortOrder,
 ): { data: any[]; series: ChartSeries[] } {
   if (!xField || measures.length === 0 || measures[0].field === '') return { data: [], series: [] };
 
+  const filteredRows = applyFilters(rows, filters);
+
   if (!groupBy) {
-    // Group by xField only → one row per x value
     const buckets = new Map<string, any[]>();
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const k = String(row[xField] ?? '(blank)');
       if (!buckets.has(k)) buckets.set(k, []);
       buckets.get(k)!.push(row);
     }
-    const data = Array.from(buckets).map(([xVal, bRows]) => {
+    let data = Array.from(buckets).map(([xVal, bRows]) => {
       const entry: any = { [xField]: xVal };
-      for (const m of measures) {
-        entry[measureDataKey(m)] = aggValue(bRows, m.field, m.agg);
-      }
+      for (const m of measures) entry[measureDataKey(m)] = aggValue(bRows, m.field, m.agg);
       return entry;
     });
-    const series: ChartSeries[] = measures.map((m, i) => ({
+    data = sortRows(data, xField, sortOrder);
+    const series: ChartSeries[] = measures.map(m => ({
       dataKey: measureDataKey(m),
       name: measureDisplayName(m),
-      color: CHART_COLORS[i % CHART_COLORS.length],
+      color: m.color,
       seriesType: m.seriesType,
     }));
     return { data, series };
   }
 
-  // Group by (xField, groupBy) → pivot groupBy values into separate series columns.
-  // Only the first measure is used when group-by is active.
+  // Group by
   const m = measures[0];
   const buckets2 = new Map<string, Map<string, any[]>>();
   const seriesSet = new Set<string>();
 
-  for (const row of rows) {
+  for (const row of filteredRows) {
     const xVal = String(row[xField] ?? '(blank)');
     const gVal = String(row[groupBy] ?? '(blank)');
     seriesSet.add(gVal);
@@ -148,13 +233,12 @@ function buildFileData(
   }
 
   const seriesNames = Array.from(seriesSet).sort();
-  const data = Array.from(buckets2).map(([xVal, innerMap]) => {
+  let data = Array.from(buckets2).map(([xVal, innerMap]) => {
     const entry: any = { [xField]: xVal };
-    for (const gVal of seriesNames) {
-      entry[gVal] = aggValue(innerMap.get(gVal) || [], m.field, m.agg);
-    }
+    for (const gVal of seriesNames) entry[gVal] = aggValue(innerMap.get(gVal) || [], m.field, m.agg);
     return entry;
   });
+  data = sortRows(data, xField, sortOrder);
   const series: ChartSeries[] = seriesNames.map((gVal, i) => ({
     dataKey: gVal,
     name: gVal,
@@ -165,12 +249,13 @@ function buildFileData(
   return { data, series };
 }
 
-/** Generate a SQL SELECT string for database sources. */
 function buildSql(
   tableName: string,
   xField: string,
   measures: MeasureConfig[],
   groupBy: string,
+  filters: ChartFilter[],
+  sortOrder: SortOrder,
   dbType = 'postgresql',
 ): string {
   const safe = (col: string) => col.replace(/[^a-zA-Z0-9_ ]/g, '');
@@ -193,15 +278,40 @@ function buildSql(
   ].join(', ');
 
   let sql = `SELECT ${selectCols} FROM ${safeTable}`;
+
+  // WHERE from filters
+  const conditions = filters
+    .filter(f => f.column && f.operator)
+    .map(f => {
+      const col = q(f.column);
+      const esc = (v: string) => v.replace(/'/g, "''");
+      switch (f.operator) {
+        case '=': return `${col} = '${esc(f.value)}'`;
+        case '!=': return `${col} != '${esc(f.value)}'`;
+        case '>': return `${col} > ${Number(f.value) || 0}`;
+        case '<': return `${col} < ${Number(f.value) || 0}`;
+        case '>=': return `${col} >= ${Number(f.value) || 0}`;
+        case '<=': return `${col} <= ${Number(f.value) || 0}`;
+        case 'contains': return `${col} LIKE '%${esc(f.value)}%'`;
+        case 'not_contains': return `${col} NOT LIKE '%${esc(f.value)}%'`;
+        case 'is_empty': return `(${col} IS NULL OR ${col} = '')`;
+        case 'is_not_empty': return `(${col} IS NOT NULL AND ${col} != '')`;
+        default: return '';
+      }
+    })
+    .filter(Boolean);
+
+  if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
+
   if (hasAgg) {
     const groupCols = [q(xField), ...(groupBy ? [q(groupBy)] : [])].join(', ');
     sql += ` GROUP BY ${groupCols}`;
   }
-  sql += ` ORDER BY ${q(xField)} LIMIT 500`;
+  const dir = sortOrder === 'desc' ? 'DESC' : 'ASC';
+  sql += ` ORDER BY ${q(xField)} ${sortOrder === 'default' ? '' : dir} LIMIT 500`.replace(/\s+/g, ' ');
   return sql;
 }
 
-/** Pivot flat DB rows when a group-by was applied (one column per group value). */
 function pivotDbRows(
   rows: any[],
   xField: string,
@@ -210,7 +320,6 @@ function pivotDbRows(
 ): { data: any[]; series: ChartSeries[] } {
   const seriesNames = Array.from(new Set(rows.map(r => String(r[groupByField] ?? '')))).sort();
   const xValues    = Array.from(new Set(rows.map(r => String(r[xField] ?? ''))));
-
   const data = xValues.map(xVal => {
     const entry: any = { [xField]: xVal };
     for (const gVal of seriesNames) {
@@ -235,11 +344,61 @@ function autoTitle(chartType: ChartType, xField: string, measures: MeasureConfig
   return t;
 }
 
-// ── Counter for stable IDs ────────────────────────────────────────────────────
 let _id = 0;
 const newId = () => `m${++_id}`;
+let _filterId = 0;
+const newFilterId = () => `f${++_filterId}`;
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── FieldChip — draggable column pill ─────────────────────────────────────────
+
+function FieldChip({ col, isNumeric }: { col: Column; isNumeric: boolean }) {
+  return (
+    <div
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('application/x-field', JSON.stringify(col));
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/60 bg-secondary/20 cursor-grab active:cursor-grabbing hover:border-accent/50 hover:bg-secondary/40 transition-colors group select-none"
+      title={`Drag to configure • ${col.type}`}
+    >
+      <span className={`size-2 rounded-full shrink-0 ${isNumeric ? 'bg-green-400' : 'bg-blue-400'}`} />
+      <span className="text-[11px] font-mono truncate max-w-[80px]">{col.name}</span>
+      <GripHorizontal className="size-2.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+    </div>
+  );
+}
+
+// ── DropZone — highlighted drop target ───────────────────────────────────────
+
+function DropZone({
+  isOver,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  children,
+  className = '',
+}: {
+  isOver: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={`rounded-lg border-2 border-dashed transition-all ${isOver ? 'border-accent bg-accent/8' : 'border-border/40'} ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export function ManualChartBuilder({
   columns,
@@ -250,18 +409,26 @@ export function ManualChartBuilder({
   dbType,
   onGenerate,
 }: ManualChartBuilderProps) {
-  const dimensions = useMemo(() => columns.filter(c => !isNumericType(c.type)), [columns]);
-  const numericCols = useMemo(() => columns.filter(c => isNumericType(c.type)), [columns]);
+  const dimensions  = useMemo(() => columns.filter(c => !isNumericType(c.type)), [columns]);
+  const numericCols = useMemo(() => columns.filter(c =>  isNumericType(c.type)), [columns]);
 
-  const [chartType, setChartType] = useState<ChartType>('bar');
-  const [xField, setXField]       = useState('');
-  const [measures, setMeasures]   = useState<MeasureConfig[]>([
-    { id: newId(), field: '', agg: 'sum', seriesType: 'bar' },
+  const [chartType,    setChartType]    = useState<ChartType>('bar');
+  const [xField,       setXField]       = useState('');
+  const [targetField,  setTargetField]  = useState('');   // sankey target column
+  const [measures,     setMeasures]     = useState<MeasureConfig[]>([
+    { id: newId(), field: '', agg: 'sum', seriesType: 'bar', color: CHART_COLORS[0] },
   ]);
-  const [groupBy,  setGroupBy]    = useState('');
-  const [preview,  setPreview]    = useState<GeneratedChartConfig | null>(null);
-  const [running,  setRunning]    = useState(false);
-  const [runError, setRunError]   = useState('');
+  const [groupBy,      setGroupBy]      = useState('');
+  const [sortOrder,    setSortOrder]    = useState<SortOrder>('default');
+  const [showLabels,   setShowLabels]   = useState(false);
+  const [filters,      setFilters]      = useState<ChartFilter[]>([]);
+  const [filtersOpen,  setFiltersOpen]  = useState(false);
+  const [dragOverZone, setDragOverZone] = useState<string | null>(null);
+  const [preview,      setPreview]      = useState<GeneratedChartConfig | null>(null);
+  const [running,      setRunning]      = useState(false);
+  const [runError,     setRunError]     = useState('');
+
+  const uiCfg = useMemo(() => getChartUIConfig(chartType), [chartType]);
 
   // Auto-seed defaults once columns arrive
   useEffect(() => {
@@ -275,22 +442,41 @@ export function ManualChartBuilder({
 
   const isReady = Boolean(xField && measures.length > 0 && measures[0].field);
 
+  // ── Measure management ────────────────────────────────────────────────────
   const addMeasure = () => {
-    if (measures.length >= 6) return;
-    setMeasures(prev => [...prev, {
-      id: newId(),
-      field: numericCols[0]?.name || columns[0]?.name || '',
-      agg: 'sum',
-      seriesType: 'bar',
-    }]);
+    setMeasures(prev => {
+      if (prev.length >= uiCfg.maxMeasures) return prev;
+      return [...prev, {
+        id: newId(),
+        field: numericCols[0]?.name || columns[0]?.name || '',
+        agg: 'sum',
+        seriesType: 'bar',
+        color: CHART_COLORS[prev.length % CHART_COLORS.length],
+      }];
+    });
   };
 
-  const removeMeasure = (id: string) => {
+  const removeMeasure = (id: string) =>
     setMeasures(prev => prev.length > 1 ? prev.filter(m => m.id !== id) : prev);
-  };
 
   const patchMeasure = (id: string, patch: Partial<MeasureConfig>) =>
     setMeasures(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
+
+  // ── Drag-and-drop handlers ────────────────────────────────────────────────
+  const extractField = (e: React.DragEvent): Column | null => {
+    try { return JSON.parse(e.dataTransfer.getData('application/x-field')); } catch { return null; }
+  };
+
+  const makeZoneHandlers = (zone: string, onDrop: (col: Column) => void) => ({
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragOverZone(zone); },
+    onDragLeave: () => setDragOverZone(null),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOverZone(null);
+      const col = extractField(e);
+      if (col) onDrop(col);
+    },
+  });
 
   // ── Core builder ──────────────────────────────────────────────────────────
   const buildChart = useCallback(async () => {
@@ -304,12 +490,11 @@ export function ManualChartBuilder({
       let sql: string | null = null;
 
       if (sourceType === 'file') {
-        const r = buildFileData(rows, xField, measures, groupBy);
+        const r = buildFileData(rows, xField, measures, groupBy, filters, sortOrder);
         data   = r.data;
         series = r.series;
       } else {
-        // Database: generate SQL → execute via API
-        sql = buildSql(tableName || '', xField, measures, groupBy, dbType);
+        sql = buildSql(tableName || '', xField, measures, groupBy, filters, sortOrder, dbType);
         const res = await fetch('/api/dashboards/refresh-widget', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -320,16 +505,15 @@ export function ManualChartBuilder({
 
         const dbRows: any[] = json.data.rows;
         if (groupBy && measures.length > 0) {
-          const dk = measureDataKey(measures[0]);
-          const p  = pivotDbRows(dbRows, xField, groupBy, dk);
-          data   = p.data;
+          const p = pivotDbRows(dbRows, xField, groupBy, measureDataKey(measures[0]));
+          data   = sortRows(p.data, xField, sortOrder);
           series = p.series;
         } else {
-          data   = dbRows;
+          data   = sortRows(dbRows, xField, sortOrder);
           series = measures.map((m, i) => ({
             dataKey: measureDataKey(m),
             name: measureDisplayName(m),
-            color: CHART_COLORS[i % CHART_COLORS.length],
+            color: m.color,
             seriesType: m.seriesType,
           }));
         }
@@ -337,12 +521,11 @@ export function ManualChartBuilder({
 
       const title = autoTitle(chartType, xField, measures, groupBy);
       const config: GeneratedChartConfig = {
-        chartType,
-        title,
-        xKey: xField,
-        series,
-        data,
-        sql,
+        chartType, title, xKey: xField, series, data, sql,
+        ...(chartType === 'sankey' && targetField ? { targetKey: targetField } : {}),
+        ...(filters.length ? { filters } : {}),
+        ...(showLabels ? { showLabels } : {}),
+        ...(sortOrder !== 'default' ? { sortOrder } : {}),
       };
       setPreview(config);
       onGenerate(config, title);
@@ -351,30 +534,41 @@ export function ManualChartBuilder({
     }
 
     setRunning(false);
-  }, [isReady, sourceType, rows, xField, measures, groupBy, chartType, connectionId, tableName, dbType, onGenerate]);
+  }, [isReady, sourceType, rows, xField, measures, groupBy, chartType, connectionId, tableName, dbType, onGenerate, filters, sortOrder, showLabels, targetField]); // eslint-disable-line
 
   // Auto-update preview for file sources
   useEffect(() => {
     if (sourceType !== 'file' || !isReady) return;
     const t = setTimeout(buildChart, 250);
     return () => clearTimeout(t);
-  }, [sourceType, isReady, xField, JSON.stringify(measures), groupBy, chartType]); // eslint-disable-line
+  }, [sourceType, isReady, xField, JSON.stringify(measures), groupBy, chartType, JSON.stringify(filters), sortOrder, showLabels]); // eslint-disable-line
 
-  const groups = Array.from(new Set(CHART_TYPES.map(c => c.group)));
+  // Chart type selection — clamp maxMeasures
+  const handleChartTypeChange = (t: ChartType) => {
+    const cfg = getChartUIConfig(t);
+    setChartType(t);
+    setMeasures(prev => prev.slice(0, cfg.maxMeasures));
+    if (!cfg.showGroupBy) setGroupBy('');
+    if (!cfg.showTarget) setTargetField('');
+  };
+
+  const groups = useMemo(() => Array.from(new Set(CHART_TYPES.map(c => c.group))), []);
+
+  const hasValueFilter = filters.some(f => f.operator !== 'is_empty' && f.operator !== 'is_not_empty');
 
   return (
     <div className="space-y-4">
 
-      {/* ── Chart type selector ─────────────────────────────────────────────── */}
-      <div className="space-y-1.5">
+      {/* ── Chart type selector ────────────────────────────────────────────── */}
+      <div className="space-y-1">
         {groups.map(grp => (
           <div key={grp} className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[9px] font-semibold text-muted-foreground uppercase w-20 shrink-0">{grp}</span>
+            <span className="text-[9px] font-semibold text-muted-foreground uppercase w-[72px] shrink-0">{grp}</span>
             {CHART_TYPES.filter(c => c.group === grp).map(ct => (
               <button
                 key={ct.type}
-                onClick={() => setChartType(ct.type)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
+                onClick={() => handleChartTypeChange(ct.type)}
+                className={`px-2 py-0.5 rounded-md text-xs font-medium transition-colors border ${
                   chartType === ct.type
                     ? 'bg-accent text-accent-foreground border-accent shadow-sm'
                     : 'border-border/60 text-muted-foreground hover:border-accent/50 hover:text-foreground'
@@ -387,173 +581,286 @@ export function ManualChartBuilder({
         ))}
       </div>
 
-      {/* ── Fields + Configuration ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-5 gap-4">
+      {/* ── Fields + Config ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-5 gap-3">
 
-        {/* Left: field list */}
-        <div className="col-span-2 rounded-lg border border-border/40 bg-black/10 p-3 space-y-3 overflow-y-auto max-h-64">
+        {/* LEFT: Draggable field list */}
+        <div className="col-span-2 rounded-lg border border-border/40 bg-black/10 p-2.5 space-y-2.5 overflow-y-auto max-h-72">
           <div>
-            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">
-              Dimensions <span className="normal-case font-normal">({dimensions.length})</span>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 flex items-center gap-1">
+              <span className="size-2 rounded-full bg-blue-400 inline-block" />
+              Dimensions ({dimensions.length})
             </p>
             {dimensions.length === 0
-              ? <p className="text-xs text-muted-foreground italic">None</p>
-              : dimensions.map(c => (
-                  <div key={c.name} className="flex items-center gap-1.5 py-0.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-                    <span className="text-[11px] font-mono truncate flex-1">{c.name}</span>
-                    <span className="text-[9px] text-muted-foreground">{c.type}</span>
-                  </div>
-                ))
+              ? <p className="text-[10px] text-muted-foreground italic">None detected</p>
+              : <div className="flex flex-wrap gap-1">{dimensions.map(c => <FieldChip key={c.name} col={c} isNumeric={false} />)}</div>
             }
           </div>
           <div>
-            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">
-              Measures <span className="normal-case font-normal">({numericCols.length})</span>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 flex items-center gap-1">
+              <span className="size-2 rounded-full bg-green-400 inline-block" />
+              Measures ({numericCols.length})
             </p>
             {numericCols.length === 0
-              ? <p className="text-xs text-muted-foreground italic">None</p>
-              : numericCols.map(c => (
-                  <div key={c.name} className="flex items-center gap-1.5 py-0.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-400 shrink-0" />
-                    <span className="text-[11px] font-mono truncate flex-1">{c.name}</span>
-                    <span className="text-[9px] text-muted-foreground">{c.type}</span>
-                  </div>
-                ))
+              ? <p className="text-[10px] text-muted-foreground italic">None detected</p>
+              : <div className="flex flex-wrap gap-1">{numericCols.map(c => <FieldChip key={c.name} col={c} isNumeric={true} />)}</div>
             }
           </div>
+          <p className="text-[9px] text-muted-foreground/60 italic mt-1">Drag fields to the zones →</p>
         </div>
 
-        {/* Right: configuration shelves */}
-        <div className="col-span-3 space-y-3">
+        {/* RIGHT: Configuration drop zones */}
+        <div className="col-span-3 space-y-2.5">
 
-          {/* X-Axis / Category */}
+          {/* X-Axis Zone */}
           <div>
-            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
-              X-Axis / Category
-            </label>
-            <Select value={xField || '__x_none__'} onValueChange={v => setXField(v === '__x_none__' ? '' : v)}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Select column…" />
-              </SelectTrigger>
-              <SelectContent>
-                {columns.length === 0 && (
-                  <SelectItem value="__x_none__" disabled className="text-xs text-muted-foreground">No columns available</SelectItem>
-                )}
-                {columns.map(c => (
-                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{uiCfg.xLabel}</p>
+            <DropZone
+              isOver={dragOverZone === 'x'}
+              {...makeZoneHandlers('x', col => setXField(col.name))}
+              className="p-2 min-h-[36px]"
+            >
+              {xField ? (
+                <div className="flex items-center gap-1.5">
+                  <span className={`size-2 rounded-full shrink-0 ${isNumericType(columns.find(c => c.name === xField)?.type || '') ? 'bg-green-400' : 'bg-blue-400'}`} />
+                  <span className="text-xs font-mono flex-1 truncate">{xField}</span>
+                  <button onClick={() => setXField('')} className="text-muted-foreground hover:text-destructive transition-colors">
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground/50 italic">drop here or</span>
+                  <Select value={xField || '__none__'} onValueChange={v => setXField(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
+                      <SelectValue placeholder="select field…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" className="text-xs text-muted-foreground">— Select —</SelectItem>
+                      {columns.map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </DropZone>
           </div>
 
-          {/* Y-Axis / Values */}
+          {/* Target Zone (Sankey only) */}
+          {uiCfg.showTarget && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Target Column</p>
+              <DropZone
+                isOver={dragOverZone === 'target'}
+                {...makeZoneHandlers('target', col => setTargetField(col.name))}
+                className="p-2 min-h-[36px]"
+              >
+                {targetField ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-accent shrink-0" />
+                    <span className="text-xs font-mono flex-1 truncate">{targetField}</span>
+                    <button onClick={() => setTargetField('')} className="text-muted-foreground hover:text-destructive">
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground/50 italic">drop target column or</span>
+                    <Select value={targetField || '__none__'} onValueChange={v => setTargetField(v === '__none__' ? '' : v)}>
+                      <SelectTrigger className="h-6 text-xs flex-1">
+                        <SelectValue placeholder="select…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" className="text-xs text-muted-foreground">— Select —</SelectItem>
+                        {columns.filter(c => c.name !== xField).map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </DropZone>
+            </div>
+          )}
+
+          {/* Y-Axis Measures Zone */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Y-Axis / Values
-              </label>
-              {measures.length < 6 && (
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{uiCfg.yLabel}</p>
+              {measures.length < uiCfg.maxMeasures && (
                 <Button
                   size="sm" variant="ghost"
-                  className="h-6 px-2 text-[10px] gap-1"
+                  className="h-5 px-1.5 text-[10px] gap-0.5"
                   onClick={addMeasure}
-                  disabled={!!groupBy}
-                  title={groupBy ? 'Remove Group By to add multiple measures' : undefined}
+                  disabled={!!groupBy && !uiCfg.showGroupBy}
+                  title={groupBy && uiCfg.showGroupBy ? 'Remove Group By to add multiple measures' : undefined}
                 >
                   <Plus className="size-3" /> Add
                 </Button>
               )}
             </div>
-            <div className="space-y-1.5">
+            <DropZone
+              isOver={dragOverZone === 'y'}
+              {...makeZoneHandlers('y', col => {
+                const isNum = isNumericType(col.type);
+                setMeasures(prev => {
+                  // If only one empty measure, replace it
+                  if (prev.length === 1 && !prev[0].field) {
+                    return [{ ...prev[0], field: col.name, agg: isNum ? 'sum' : 'count' }];
+                  }
+                  if (prev.length >= uiCfg.maxMeasures) return prev;
+                  return [...prev, {
+                    id: newId(),
+                    field: col.name,
+                    agg: isNum ? 'sum' : 'count',
+                    seriesType: 'bar',
+                    color: CHART_COLORS[prev.length % CHART_COLORS.length],
+                  }];
+                });
+              })}
+              className="p-2 space-y-1.5"
+            >
               {measures.map((m, idx) => (
-                <div key={m.id} className="flex gap-1.5 items-center">
+                <div key={m.id} className="flex gap-1 items-center">
+                  {/* Color swatch */}
+                  <label className="cursor-pointer shrink-0" title="Change color">
+                    <span className="size-5 rounded border border-border block" style={{ background: m.color }} />
+                    <input
+                      type="color"
+                      value={m.color}
+                      onChange={e => patchMeasure(m.id, { color: e.target.value })}
+                      className="sr-only"
+                    />
+                  </label>
+                  {/* Label for bubble/gauge */}
+                  {uiCfg.measureLabels?.[idx] && (
+                    <span className="text-[9px] text-muted-foreground uppercase shrink-0 w-14">{uiCfg.measureLabels[idx]}</span>
+                  )}
                   {/* Field */}
                   <Select
-                    value={m.field || '__m_none__'}
-                    onValueChange={v => patchMeasure(m.id, { field: v === '__m_none__' ? '' : v })}
+                    value={m.field || '__none__'}
+                    onValueChange={v => patchMeasure(m.id, { field: v === '__none__' ? '' : v })}
                   >
-                    <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
+                    <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
                       <SelectValue placeholder="Column…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {columns.length === 0 && (
-                        <SelectItem value="__m_none__" disabled className="text-xs text-muted-foreground">No columns</SelectItem>
-                      )}
-                      {columns.map(c => (
-                        <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
-                      ))}
+                      <SelectItem value="__none__" className="text-xs text-muted-foreground">— Select —</SelectItem>
+                      {columns.map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   {/* Aggregation */}
                   <Select value={m.agg} onValueChange={v => patchMeasure(m.id, { agg: v as AggFunc })}>
-                    <SelectTrigger className="h-8 text-xs w-32 shrink-0">
+                    <SelectTrigger className="h-7 text-xs w-24 shrink-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {AGG_OPTIONS.map(a => (
-                        <SelectItem key={a.value} value={a.value} className="text-xs">{a.label}</SelectItem>
-                      ))}
+                      {AGG_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-xs">{a.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   {/* Series type (composed only) */}
                   {chartType === 'composed' && (
                     <Select value={m.seriesType} onValueChange={v => patchMeasure(m.id, { seriesType: v as SeriesType })}>
-                      <SelectTrigger className="h-8 text-xs w-20 shrink-0">
+                      <SelectTrigger className="h-7 text-xs w-16 shrink-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {SERIES_TYPE_OPTIONS.map(st => (
-                          <SelectItem key={st.value} value={st.value} className="text-xs">{st.label}</SelectItem>
-                        ))}
+                        {SERIES_TYPE_OPTIONS.map(st => <SelectItem key={st.value} value={st.value} className="text-xs">{st.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   )}
                   {/* Remove */}
                   <Button
                     size="icon" variant="ghost"
-                    className="size-8 shrink-0 hover:text-destructive"
+                    className="size-7 shrink-0 hover:text-destructive"
                     onClick={() => removeMeasure(m.id)}
                     disabled={measures.length === 1}
-                    title={idx === 0 ? undefined : 'Remove measure'}
                   >
                     <X className="size-3" />
                   </Button>
                 </div>
               ))}
-            </div>
+              {measures.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/50 italic py-1">Drop a measure field here</p>
+              )}
+            </DropZone>
           </div>
 
-          {/* Group By / Color */}
-          <div>
-            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
-              Group By <span className="normal-case font-normal text-muted-foreground">(creates series)</span>
-            </label>
-            {/* Radix UI Select does not allow value="" — use "__none__" as sentinel */}
-            <Select
-              value={groupBy || '__none__'}
-              onValueChange={v => {
-                const val = v === '__none__' ? '' : v;
-                setGroupBy(val);
-                if (val) setMeasures(prev => prev.slice(0, 1));
-              }}
+          {/* Group By Zone */}
+          {uiCfg.showGroupBy && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                Group By <span className="normal-case font-normal">(creates series{chartType === 'heatmap' ? ' / Y axis' : ''})</span>
+              </p>
+              <DropZone
+                isOver={dragOverZone === 'group'}
+                {...makeZoneHandlers('group', col => {
+                  setGroupBy(col.name);
+                  setMeasures(prev => prev.slice(0, 1));
+                })}
+                className="p-2 min-h-[36px]"
+              >
+                {groupBy ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-amber-400 shrink-0" />
+                    <span className="text-xs font-mono flex-1 truncate">{groupBy}</span>
+                    <button onClick={() => setGroupBy('')} className="text-muted-foreground hover:text-destructive">
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground/50 italic">drop here or</span>
+                    <Select
+                      value={groupBy || '__none__'}
+                      onValueChange={v => {
+                        const val = v === '__none__' ? '' : v;
+                        setGroupBy(val);
+                        if (val) setMeasures(prev => prev.slice(0, 1));
+                      }}
+                    >
+                      <SelectTrigger className="h-6 text-xs flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" className="text-xs text-muted-foreground">— None —</SelectItem>
+                        {columns.filter(c => c.name !== xField).map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </DropZone>
+            </div>
+          )}
+
+          {/* Options row: Sort + Labels */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Sort order */}
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown className="size-3 text-muted-foreground shrink-0" />
+              <Select value={sortOrder} onValueChange={v => setSortOrder(v as SortOrder)}>
+                <SelectTrigger className="h-7 text-xs w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default" className="text-xs">Default order</SelectItem>
+                  <SelectItem value="asc"     className="text-xs">Sort A → Z</SelectItem>
+                  <SelectItem value="desc"    className="text-xs">Sort Z → A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Data labels toggle */}
+            <button
+              onClick={() => setShowLabels(v => !v)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs transition-colors ${
+                showLabels ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border/60 text-muted-foreground hover:border-accent/40'
+              }`}
             >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__" className="text-xs text-muted-foreground">— None —</SelectItem>
-                {columns.filter(c => c.name !== xField).map(c => (
-                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <Tag className="size-3" /> Labels
+            </button>
           </div>
 
           {/* Run button (DB only) */}
           {sourceType === 'database' && (
             <Button
-              className="w-full gap-2"
+              className="w-full gap-2 h-8"
               size="sm"
               onClick={buildChart}
               disabled={!isReady || running}
@@ -564,22 +871,96 @@ export function ManualChartBuilder({
               }
             </Button>
           )}
-
           {runError && (
             <p className="text-xs text-destructive bg-destructive/10 rounded px-2 py-1">{runError}</p>
           )}
         </div>
       </div>
 
-      {/* ── Preview ─────────────────────────────────────────────────────────── */}
+      {/* ── Filters section ────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border/40 overflow-hidden">
+        <button
+          onClick={() => setFiltersOpen(v => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary/20 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <Filter className="size-3.5" />
+            Chart Filters
+            {filters.length > 0 && (
+              <Badge variant="outline" className="text-[9px] text-accent border-accent/30 ml-1 px-1.5 py-0">{filters.length}</Badge>
+            )}
+          </span>
+          {filtersOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        </button>
+
+        {filtersOpen && (
+          <div className="p-3 border-t border-border/40 space-y-2 bg-black/10">
+            <p className="text-[9px] text-muted-foreground">
+              {sourceType === 'file' ? 'Applied before aggregation — narrows the source rows.' : 'Added to SQL WHERE clause.'}
+            </p>
+            {filters.map(f => (
+              <div key={f.id} className="flex gap-1.5 items-center">
+                {/* Column */}
+                <Select value={f.column || '__none__'} onValueChange={v => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, column: v === '__none__' ? '' : v } : x))}>
+                  <SelectTrigger className="h-7 text-xs w-28 shrink-0">
+                    <SelectValue placeholder="Column…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" className="text-xs text-muted-foreground">Column…</SelectItem>
+                    {columns.map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {/* Operator */}
+                <Select value={f.operator} onValueChange={v => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, operator: v as ChartFilter['operator'] } : x))}>
+                  <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FILTER_OPERATORS.map(op => <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {/* Value (hidden for is_empty / is_not_empty) */}
+                {f.operator !== 'is_empty' && f.operator !== 'is_not_empty' ? (
+                  <Input
+                    value={f.value}
+                    onChange={e => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, value: e.target.value } : x))}
+                    className="h-7 text-xs flex-1 min-w-0"
+                    placeholder="Value…"
+                  />
+                ) : (
+                  <div className="flex-1" />
+                )}
+                {/* Remove */}
+                <Button
+                  size="icon" variant="ghost"
+                  className="size-7 shrink-0 hover:text-destructive"
+                  onClick={() => setFilters(prev => prev.filter(x => x.id !== f.id))}
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              size="sm" variant="ghost"
+              className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+              onClick={() => setFilters(prev => [...prev, { id: newFilterId(), column: '', operator: '=', value: '' }])}
+            >
+              <Plus className="size-3" /> Add filter
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Preview ────────────────────────────────────────────────────────── */}
       {preview ? (
         <div className="rounded-xl border border-border/40 bg-black/20 p-3">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] font-semibold text-muted-foreground truncate">{preview.title}</p>
-            <div className="flex gap-2 text-[9px] text-muted-foreground shrink-0 ml-2">
+            <div className="flex gap-1.5 text-[9px] text-muted-foreground shrink-0 ml-2 flex-wrap justify-end">
               <span className="bg-accent/10 text-accent px-1.5 py-0.5 rounded font-mono">{preview.chartType}</span>
               <span>{preview.data.length} rows</span>
               {preview.series.length > 1 && <span>{preview.series.length} series</span>}
+              {preview.filters?.length ? <span className="text-accent">{preview.filters.length} filter{preview.filters.length > 1 ? 's' : ''}</span> : null}
             </div>
           </div>
           <ChartRenderer config={preview} height={220} />

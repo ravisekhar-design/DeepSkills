@@ -5,6 +5,7 @@ import {
   BarChart2, Plus, Trash2, Loader2, Database, FolderOpen,
   ChevronRight, Sparkles, RefreshCw, LayoutDashboard, PencilLine,
   Check, X, Table, FileText, Sliders, Maximize2, Pencil,
+  Filter, Columns, Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,7 @@ import { useUser } from "@/hooks/use-user";
 import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
 import { ManualChartBuilder } from "@/components/manual-chart-builder";
-import { generateChart, type GeneratedChartConfig } from "@/ai/flows/chart-generation";
+import { generateChart, type GeneratedChartConfig, type ChartFilter } from "@/ai/flows/chart-generation";
 import type { DatabaseConnection, SystemSettings } from "@/lib/store";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 
@@ -179,6 +180,10 @@ export default function VisualizePage() {
   const [editSchemaLoading, setEditSchemaLoading] = useState(false);
   const [editGenerating, setEditGenerating]   = useState(false);
   const [editSaving,     setEditSaving]       = useState(false);
+
+  // ── Global dashboard filters ─────────────────────────────────────────────
+  const [globalFilters,     setGlobalFilters]     = useState<ChartFilter[]>([]);
+  const [globalFiltersOpen, setGlobalFiltersOpen] = useState(false);
 
   // ── Load dashboards ──────────────────────────────────────────────────────
 
@@ -463,14 +468,20 @@ export default function VisualizePage() {
 
   // ── Open edit dialog ─────────────────────────────────────────────────────
   const openEditDialog = async (widget: DashboardWidget) => {
+    // Reset all edit state for the new widget BEFORE opening — prevents stale chart flash
+    setEditingWidget(null);
+    setEditPreview(null);
+    setEditSchema({ columns: [], rows: [] });
+    setEditTitle('');
+    setEditPrompt('');
+    setEditBuildMode('ai');
+    setEditSchemaLoading(true);
+    setEditDialogOpen(true);
+    // Now populate with the target widget
     setEditingWidget(widget);
     setEditTitle(widget.title);
     setEditPrompt(widget.prompt);
     setEditPreview(widget.chartConfig);
-    setEditBuildMode('ai');
-    setEditSchema({ columns: [], rows: [] });
-    setEditSchemaLoading(true);
-    setEditDialogOpen(true);
 
     // Ensure connections are in state (needed for dbType lookup in ManualChartBuilder)
     if (connections.length === 0) {
@@ -562,6 +573,51 @@ export default function VisualizePage() {
     }
     setEditSaving(false);
   };
+
+  // ── Toggle widget grid width (1 col ↔ 2 col) ─────────────────────────────
+  const toggleWidgetWidth = async (widget: DashboardWidget) => {
+    if (!selected) return;
+    const newW = widget.gridW === 2 ? 1 : 2;
+    try {
+      await fetch(`/api/dashboards/${selected.id}/widgets?widgetId=${widget.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gridW: newW }),
+      });
+      setSelected(prev => prev ? {
+        ...prev,
+        widgets: prev.widgets.map(w => w.id === widget.id ? { ...w, gridW: newW } : w),
+      } : prev);
+    } catch { /* non-fatal */ }
+  };
+
+  // ── Apply global filters to chart data at render time ────────────────────
+  function applyGlobalFilters(config: GeneratedChartConfig): GeneratedChartConfig {
+    if (!globalFilters.length) return config;
+    const active = globalFilters.filter(f => f.column && f.operator);
+    if (!active.length) return config;
+    const filtered = config.data.filter(row =>
+      active.every(f => {
+        const val = row[f.column];
+        const strVal = String(val ?? '').toLowerCase();
+        const fv = (f.value ?? '').toLowerCase();
+        switch (f.operator) {
+          case '=':            return String(val) === f.value;
+          case '!=':           return String(val) !== f.value;
+          case '>':            return Number(val) > Number(f.value);
+          case '<':            return Number(val) < Number(f.value);
+          case '>=':           return Number(val) >= Number(f.value);
+          case '<=':           return Number(val) <= Number(f.value);
+          case 'contains':     return strVal.includes(fv);
+          case 'not_contains': return !strVal.includes(fv);
+          case 'is_empty':     return val == null || String(val) === '';
+          case 'is_not_empty': return val != null && String(val) !== '';
+          default:             return true;
+        }
+      })
+    );
+    return { ...config, data: filtered };
+  }
 
   // ── Wizard step validation ────────────────────────────────────────────────
 
@@ -685,15 +741,108 @@ export default function VisualizePage() {
         ) : (
           <div className="p-6">
             {/* Dashboard header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
               <div>
                 <h1 className="text-2xl font-bold">{selected.name}</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">{selected.widgets.length} chart{selected.widgets.length !== 1 ? 's' : ''}</p>
               </div>
-              <Button onClick={openWizard} className="gap-2">
-                <Sparkles className="size-4" /> Add Chart
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`gap-1.5 text-xs h-8 ${globalFiltersOpen ? 'border-accent text-accent' : ''}`}
+                  onClick={() => setGlobalFiltersOpen(v => !v)}
+                >
+                  <Filter className="size-3.5" />
+                  Filters
+                  {globalFilters.filter(f => f.column).length > 0 && (
+                    <span className="ml-0.5 bg-accent text-accent-foreground rounded-full px-1.5 text-[9px] font-bold">
+                      {globalFilters.filter(f => f.column).length}
+                    </span>
+                  )}
+                </Button>
+                <Button onClick={openWizard} className="gap-2">
+                  <Sparkles className="size-4" /> Add Chart
+                </Button>
+              </div>
             </div>
+
+            {/* Global filter bar */}
+            {globalFiltersOpen && (
+              <div className="mb-5 rounded-xl border border-border bg-card/50 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-accent uppercase tracking-widest flex items-center gap-1.5">
+                    <Filter className="size-3.5" /> Global Filters
+                  </p>
+                  <span className="text-[10px] text-muted-foreground bg-secondary/40 px-2 py-0.5 rounded-full">
+                    Applies to all charts on this dashboard
+                  </span>
+                </div>
+                {globalFilters.map((f, idx) => (
+                  <div key={f.id} className="flex gap-2 items-center flex-wrap">
+                    <Input
+                      value={f.column}
+                      onChange={e => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, column: e.target.value } : x))}
+                      placeholder="Column name…"
+                      className="h-8 text-xs w-36"
+                    />
+                    <Select
+                      value={f.operator}
+                      onValueChange={v => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, operator: v as ChartFilter['operator'] } : x))}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[
+                          { v: '=', l: '= equals' }, { v: '!=', l: '≠ not equals' },
+                          { v: '>', l: '> greater' }, { v: '<', l: '< less' },
+                          { v: '>=', l: '≥ gte' }, { v: '<=', l: '≤ lte' },
+                          { v: 'contains', l: 'contains' }, { v: 'not_contains', l: 'not contains' },
+                          { v: 'is_empty', l: 'is empty' }, { v: 'is_not_empty', l: 'not empty' },
+                        ].map(op => (
+                          <SelectItem key={op.v} value={op.v} className="text-xs">{op.l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {f.operator !== 'is_empty' && f.operator !== 'is_not_empty' && (
+                      <Input
+                        value={f.value}
+                        onChange={e => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, value: e.target.value } : x))}
+                        placeholder="Value…"
+                        className="h-8 text-xs w-36"
+                      />
+                    )}
+                    <Button
+                      size="icon" variant="ghost"
+                      className="size-8 hover:text-destructive shrink-0"
+                      onClick={() => setGlobalFilters(prev => prev.filter((_, i) => i !== idx))}
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  size="sm" variant="ghost"
+                  className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                  onClick={() => setGlobalFilters(prev => [...prev, {
+                    id: `gf${Date.now()}`,
+                    column: '', operator: '=', value: ''
+                  }])}
+                >
+                  <Plus className="size-3" /> Add filter
+                </Button>
+                {globalFilters.some(f => f.column) && (
+                  <Button
+                    size="sm" variant="ghost"
+                    className="h-7 px-2 text-xs gap-1 text-destructive/70 hover:text-destructive"
+                    onClick={() => setGlobalFilters([])}
+                  >
+                    <X className="size-3" /> Clear all
+                  </Button>
+                )}
+              </div>
+            )}
 
             {/* Widget grid */}
             {selected.widgets.length === 0 ? (
@@ -736,6 +885,9 @@ export default function VisualizePage() {
                       </div>
                       <div className="flex gap-0.5 shrink-0 items-center">
                         <Badge variant="outline" className="text-[9px] font-mono mr-0.5">{widget.chartType}</Badge>
+                        <Button size="icon" variant="ghost" className="size-7" title={widget.gridW === 2 ? 'Shrink to half width' : 'Expand to full width'} onClick={() => toggleWidgetWidth(widget)}>
+                          {widget.gridW === 2 ? <Square className="size-3" /> : <Columns className="size-3" />}
+                        </Button>
                         <Button size="icon" variant="ghost" className="size-7" title="Expand chart" onClick={() => setExpandedWidget(widget)}>
                           <Maximize2 className="size-3" />
                         </Button>
@@ -753,7 +905,7 @@ export default function VisualizePage() {
                       </div>
                     </CardHeader>
                     <CardContent className="pt-0">
-                      <ChartRenderer config={widget.chartConfig} height={240} />
+                      <ChartRenderer config={applyGlobalFilters(widget.chartConfig)} height={240} />
                     </CardContent>
                   </Card>
                 ))}
@@ -772,7 +924,7 @@ export default function VisualizePage() {
           </DialogHeader>
           {expandedWidget && (
             <div className="flex-1 min-h-0 pt-2">
-              <ChartRenderer config={expandedWidget.chartConfig} height={520} />
+              <ChartRenderer config={applyGlobalFilters(expandedWidget.chartConfig)} height={520} />
             </div>
           )}
         </DialogContent>

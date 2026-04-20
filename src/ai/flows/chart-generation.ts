@@ -15,16 +15,27 @@ export interface ChartSeries {
   seriesType?: 'bar' | 'line' | 'area'; // used by composed charts only
 }
 
+export interface ChartFilter {
+  id: string;
+  column: string;
+  operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'contains' | 'not_contains' | 'is_empty' | 'is_not_empty';
+  value: string;
+}
+
 export type ChartType =
   | 'bar' | 'stacked_bar' | 'horizontal_bar'
   | 'line' | 'area'
   | 'pie' | 'donut'
-  | 'scatter'
+  | 'scatter' | 'bubble'
   | 'radar'
   | 'treemap'
   | 'funnel'
   | 'composed'
-  | 'radial_bar';
+  | 'radial_bar'
+  | 'waterfall'
+  | 'heatmap'
+  | 'gauge'
+  | 'sankey';
 
 export interface GeneratedChartConfig {
   chartType: ChartType;
@@ -33,6 +44,11 @@ export interface GeneratedChartConfig {
   series: ChartSeries[];
   data: any[];
   sql: string | null;
+  // Advanced chart options
+  targetKey?: string;                          // sankey: target-node column name
+  filters?: ChartFilter[];                     // chart-level filters (metadata only)
+  showLabels?: boolean;                        // show data labels on chart
+  sortOrder?: 'default' | 'asc' | 'desc';     // data sort order
 }
 
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#a3e635', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -70,15 +86,21 @@ Chart type rules — pick the BEST fit:
 • "funnel"        — sequential conversion stages / pipeline
 • "composed"      — overlay bar + line for dual metrics on same axis
 • "radial_bar"    — progress / achievement per category in polar form
+• "waterfall"     — running total breakdown, show gains/losses per category
+• "heatmap"       — 2D matrix with color intensity showing value density
+• "bubble"        — scatter with a third size dimension (needs 3 numeric cols)
+• "gauge"         — single KPI value shown as a speedometer arc
+• "sankey"        — flow diagram between two sets of categories
 
 Additional rules:
 - For database sources: generate a SQL SELECT query that returns already-aggregated/ready data. Set aggregation to null. Alias columns clearly. Keep SQL simple and compatible with the database type.
 - For file sources: set sql to null. If the user asks for grouping/counting/aggregation use the aggregation field. If no aggregation is needed, use exact column names.
-- xKey: string/label column (exception: for scatter, xKey must be a NUMERIC column)
+- xKey: string/label column (exception: for scatter/bubble, xKey can be the label; for gauge, xKey is the label column)
 - series: numeric columns to plot. For composed, each series entry MUST include seriesType ("bar" or "line").
 - For scatter: xKey is the X numeric column; series[0].dataKey is the Y numeric column.
 - For radar: xKey is the category spoke label; series are the numeric metric columns.
-- For treemap, funnel, radial_bar: xKey is the name/label; series[0].dataKey is the value.
+- For treemap, funnel, radial_bar, gauge, waterfall: xKey is the name/label; series[0].dataKey is the value.
+- For bubble: xKey is the label; series[0]=X-value, series[1]=Y-value, series[2]=size-value.
 - Colors must be from: #6366f1, #22d3ee, #a3e635, #f59e0b, #ef4444, #8b5cf6.
 - SQL must be safe SELECT-only. Never use DROP, DELETE, UPDATE, INSERT.`;
 
