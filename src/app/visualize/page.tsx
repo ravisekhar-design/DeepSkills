@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, FolderOpen,
-  ChevronRight, RefreshCw, LayoutDashboard, PencilLine,
+  ChevronRight, Sparkles, RefreshCw, LayoutDashboard, PencilLine,
   Check, X, Table, FileText, Maximize2, Pencil,
   Filter, Columns, Square, Sliders,
 } from "lucide-react";
@@ -13,12 +13,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
+import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
 import { ManualChartBuilder } from "@/components/manual-chart-builder";
-import type { GeneratedChartConfig, ChartFilter } from "@/ai/flows/chart-generation";
-import type { DatabaseConnection } from "@/lib/store";
+import { generateChart, type GeneratedChartConfig, type ChartFilter } from "@/ai/flows/chart-generation";
+import type { DatabaseConnection, SystemSettings } from "@/lib/store";
+import { DEFAULT_SETTINGS } from "@/lib/store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +56,7 @@ interface SchemaColumn { name: string; type: string; }
 
 // ── Wizard step labels ────────────────────────────────────────────────────────
 
-const STEPS = ['Data Source', 'Select Data', 'Build Chart', 'Preview & Save'];
+const STEPS = ['Data Source', 'Select Data', 'Configure Chart', 'Preview & Save'];
 
 // ── File parser (client-side: CSV, TSV, JSON) ────────────────────────────────
 
@@ -104,6 +107,8 @@ function parseFile(content: string, fileName: string): { columns: SchemaColumn[]
 export default function VisualizePage() {
   const { user } = useUser();
   const { toast } = useToast();
+  const { data: settingsData } = useDoc<SystemSettings>(null);
+  const visualizeModel = (settingsData || DEFAULT_SETTINGS).modelMapping.visualize;
 
   // Dashboard list
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
@@ -145,6 +150,11 @@ export default function VisualizePage() {
   const [fileSchema, setFileSchema] = useState<{ columns: SchemaColumn[]; rows: any[] } | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
 
+  // Step 2 — build mode + AI prompt
+  const [buildMode, setBuildMode] = useState<'ai' | 'manual'>('manual');
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+
   // Step 3 — preview
   const [preview, setPreview] = useState<GeneratedChartConfig | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
@@ -158,17 +168,32 @@ export default function VisualizePage() {
   const [expandedWidget, setExpandedWidget] = useState<DashboardWidget | null>(null);
 
   // ── Edit chart dialog ──────────────────────────────────────────────────
-  const [editDialogOpen, setEditDialogOpen]   = useState(false);
-  const [editingWidget,  setEditingWidget]    = useState<DashboardWidget | null>(null);
-  const [editTitle,      setEditTitle]        = useState('');
-  const [editPreview,    setEditPreview]      = useState<GeneratedChartConfig | null>(null);
-  const [editSchema,     setEditSchema]       = useState<{ columns: SchemaColumn[]; rows: any[] }>({ columns: [], rows: [] });
+  const [editDialogOpen,    setEditDialogOpen]    = useState(false);
+  const [editingWidget,     setEditingWidget]     = useState<DashboardWidget | null>(null);
+  const [editBuildMode,     setEditBuildMode]     = useState<'ai' | 'manual'>('manual');
+  const [editTitle,         setEditTitle]         = useState('');
+  const [editPrompt,        setEditPrompt]        = useState('');
+  const [editPreview,       setEditPreview]       = useState<GeneratedChartConfig | null>(null);
+  const [editSchema,        setEditSchema]        = useState<{ columns: SchemaColumn[]; rows: any[] }>({ columns: [], rows: [] });
   const [editSchemaLoading, setEditSchemaLoading] = useState(false);
-  const [editSaving,     setEditSaving]       = useState(false);
+  const [editGenerating,    setEditGenerating]    = useState(false);
+  const [editSaving,        setEditSaving]        = useState(false);
 
   // ── Global dashboard filters ─────────────────────────────────────────────
   const [globalFilters,     setGlobalFilters]     = useState<ChartFilter[]>([]);
   const [globalFiltersOpen, setGlobalFiltersOpen] = useState(false);
+
+  /** All unique column names across all widgets in the current dashboard (for filter dropdowns) */
+  const allWidgetColumns = useMemo(() => {
+    if (!selected) return [];
+    const cols = new Set<string>();
+    selected.widgets.forEach(w => {
+      if (w.chartConfig?.xKey) cols.add(w.chartConfig.xKey);
+      w.chartConfig?.series?.forEach(s => { if (s.dataKey) cols.add(s.dataKey); });
+      if (w.chartConfig?.data?.[0]) Object.keys(w.chartConfig.data[0]).forEach(k => cols.add(k));
+    });
+    return Array.from(cols).sort();
+  }, [selected?.widgets]); // eslint-disable-line
 
   // ── Load dashboards ──────────────────────────────────────────────────────
 
@@ -253,7 +278,7 @@ export default function VisualizePage() {
     setSourceType('database');
     setSelectedConn(''); setTables([]); setSelectedTable(''); setTableSchema({ columns: [], sampleRows: [] });
     setSelectedFolder(''); setFolderFiles([]); setSelectedFile(''); setFileSchema(null);
-    setPreview(null); setPreviewTitle('');
+    setBuildMode('manual'); setPrompt(''); setPreview(null); setPreviewTitle('');
     setWizardOpen(true);
   };
 
@@ -314,6 +339,45 @@ export default function VisualizePage() {
     setFileLoading(false);
   };
 
+  // ── Step 2: AI chart generation ─────────────────────────────────────────
+
+  const runGenerate = async () => {
+    setGenerating(true);
+    setPreview(null);
+    try {
+      let result: GeneratedChartConfig;
+      if (sourceType === 'database') {
+        const conn = connections.find(c => c.id === selectedConn);
+        result = await generateChart({
+          sourceType: 'database', tableName: selectedTable,
+          columns: tableSchema.columns, sampleRows: tableSchema.sampleRows,
+          prompt, dbType: conn?.type, connectionId: selectedConn,
+          userId: user?.uid, preferredModel: visualizeModel,
+        });
+      } else {
+        const file = folderFiles.find(f => f.id === selectedFile);
+        result = await generateChart({
+          sourceType: 'file', tableName: file?.name || 'data',
+          columns: fileSchema?.columns || [], sampleRows: fileSchema?.rows?.slice(0, 5) || [],
+          allRows: fileSchema?.rows, prompt, preferredModel: visualizeModel,
+        });
+      }
+      setPreview(result);
+      setPreviewTitle(result.title);
+      setStep(3);
+    } catch (err: any) {
+      const msg: string = err.message || '';
+      const friendly =
+        msg.includes('429') || msg.toLowerCase().includes('quota')
+          ? 'AI quota exceeded. Switch model in Settings or try again later.'
+          : msg.includes('401') || msg.toLowerCase().includes('api key')
+          ? 'Invalid or missing API key. Check your model settings.'
+          : msg;
+      toast({ title: 'Generation failed', description: friendly, variant: 'destructive' });
+    }
+    setGenerating(false);
+  };
+
   // ── Step 3: save widget ──────────────────────────────────────────────────
 
   const saveWidget = async () => {
@@ -333,7 +397,7 @@ export default function VisualizePage() {
           dataSourceId: sourceType === 'database' ? selectedConn : selectedFile,
           dataSourceName: sourceType === 'database' ? `${conn?.name} / ${selectedTable}` : file?.name,
           dataQuery: preview.sql,
-          prompt: '',
+          prompt: buildMode === 'ai' ? prompt : '',
           gridW: 1,
         }),
       });
@@ -404,16 +468,19 @@ export default function VisualizePage() {
 
   // ── Open edit dialog ─────────────────────────────────────────────────────
   const openEditDialog = async (widget: DashboardWidget) => {
-    // Reset all edit state for the new widget BEFORE opening — prevents stale chart flash
+    // Reset all edit state BEFORE opening — prevents stale chart flash
     setEditingWidget(null);
     setEditPreview(null);
     setEditSchema({ columns: [], rows: [] });
     setEditTitle('');
+    setEditPrompt('');
+    setEditBuildMode('manual');
     setEditSchemaLoading(true);
     setEditDialogOpen(true);
     // Now populate with the target widget
     setEditingWidget(widget);
     setEditTitle(widget.title);
+    setEditPrompt(widget.prompt || '');
     setEditPreview(widget.chartConfig);
 
     // Ensure connections are in state (needed for dbType lookup in ManualChartBuilder)
@@ -447,6 +514,31 @@ export default function VisualizePage() {
     setEditSchemaLoading(false);
   };
 
+  // ── AI re-generate inside edit dialog ───────────────────────────────────
+  const runEditGenerate = async () => {
+    if (!editingWidget) return;
+    setEditGenerating(true);
+    try {
+      const tableName = editingWidget.dataSourceName.split(' / ').pop()?.trim() || '';
+      const conn = connections.find(c => c.id === editingWidget.dataSourceId);
+      const result = await generateChart(
+        editingWidget.dataSourceType === 'database'
+          ? { sourceType: 'database', tableName, columns: editSchema.columns, sampleRows: editSchema.rows, prompt: editPrompt, dbType: conn?.type, connectionId: editingWidget.dataSourceId, userId: user?.uid, preferredModel: visualizeModel }
+          : { sourceType: 'file', tableName: editingWidget.dataSourceName, columns: editSchema.columns, sampleRows: editSchema.rows.slice(0, 5), allRows: editSchema.rows, prompt: editPrompt, preferredModel: visualizeModel }
+      );
+      setEditPreview(result);
+      setEditTitle(result.title);
+    } catch (err: any) {
+      const msg: string = err.message || '';
+      const friendly =
+        msg.includes('429') || msg.toLowerCase().includes('quota') ? 'AI quota exceeded. Try again later or switch model in Settings.'
+        : msg.includes('401') || msg.toLowerCase().includes('api key') ? 'Invalid or missing API key.'
+        : msg;
+      toast({ title: 'Re-generation failed', description: friendly, variant: 'destructive' });
+    }
+    setEditGenerating(false);
+  };
+
   // ── Save edited widget ───────────────────────────────────────────────────
   const saveEditWidget = async () => {
     if (!editingWidget || !editPreview || !selected) return;
@@ -460,7 +552,7 @@ export default function VisualizePage() {
           chartType: editPreview.chartType,
           chartConfig: { ...editPreview, title: editTitle },
           dataQuery: editPreview.sql ?? null,
-          prompt: '',
+          prompt: editBuildMode === 'ai' ? editPrompt : '',
         }),
       });
       const json = await res.json();
@@ -535,7 +627,10 @@ export default function VisualizePage() {
       if (sourceType === 'database') return !!selectedTable && tableSchema.columns.length > 0;
       return !!selectedFile && !!fileSchema;
     }
-    if (step === 2) return !!preview;
+    if (step === 2) {
+      if (buildMode === 'manual') return !!preview;
+      return prompt.trim().length > 3;
+    }
     return false;
   };
 
@@ -667,85 +762,107 @@ export default function VisualizePage() {
                   )}
                 </Button>
                 <Button onClick={openWizard} className="gap-2">
-                  <Plus className="size-4" /> Add Chart
+                  <Sparkles className="size-4" /> Add Chart
                 </Button>
               </div>
             </div>
 
-            {/* Global filter bar */}
+            {/* Global filter bar — Power BI-inspired pill chips */}
             {globalFiltersOpen && (
-              <div className="mb-5 rounded-xl border border-border bg-card/50 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-accent uppercase tracking-widest flex items-center gap-1.5">
-                    <Filter className="size-3.5" /> Global Filters
+              <div className="mb-5 rounded-2xl border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-secondary/10">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-accent flex items-center gap-1.5">
+                    <Filter className="size-3" /> Global Filters
+                    <span className="text-muted-foreground font-normal normal-case ml-1">· applies to all charts</span>
                   </p>
-                  <span className="text-[10px] text-muted-foreground bg-secondary/40 px-2 py-0.5 rounded-full">
-                    Applies to all charts on this dashboard
-                  </span>
+                  {globalFilters.some(f => f.column) && (
+                    <button
+                      onClick={() => setGlobalFilters([])}
+                      className="text-[10px] text-destructive/60 hover:text-destructive transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  )}
                 </div>
-                {globalFilters.map((f, idx) => (
-                  <div key={f.id} className="flex gap-2 items-center flex-wrap">
-                    <Input
-                      value={f.column}
-                      onChange={e => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, column: e.target.value } : x))}
-                      placeholder="Column name…"
-                      className="h-8 text-xs w-36"
-                    />
-                    <Select
-                      value={f.operator}
-                      onValueChange={v => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, operator: v as ChartFilter['operator'] } : x))}
+
+                {/* Filter chips + add button */}
+                <div className="px-4 py-3 flex flex-wrap gap-2 items-center min-h-[52px]">
+                  {globalFilters.map((f, idx) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center rounded-full border border-border/60 bg-secondary/20 overflow-hidden text-[11px] h-8"
                     >
-                      <SelectTrigger className="h-8 text-xs w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[
-                          { v: '=', l: '= equals' }, { v: '!=', l: '≠ not equals' },
-                          { v: '>', l: '> greater' }, { v: '<', l: '< less' },
-                          { v: '>=', l: '≥ gte' }, { v: '<=', l: '≤ lte' },
-                          { v: 'contains', l: 'contains' }, { v: 'not_contains', l: 'not contains' },
-                          { v: 'is_empty', l: 'is empty' }, { v: 'is_not_empty', l: 'not empty' },
-                        ].map(op => (
-                          <SelectItem key={op.v} value={op.v} className="text-xs">{op.l}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {f.operator !== 'is_empty' && f.operator !== 'is_not_empty' && (
-                      <Input
-                        value={f.value}
-                        onChange={e => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, value: e.target.value } : x))}
-                        placeholder="Value…"
-                        className="h-8 text-xs w-36"
-                      />
-                    )}
-                    <Button
-                      size="icon" variant="ghost"
-                      className="size-8 hover:text-destructive shrink-0"
-                      onClick={() => setGlobalFilters(prev => prev.filter((_, i) => i !== idx))}
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  size="sm" variant="ghost"
-                  className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
-                  onClick={() => setGlobalFilters(prev => [...prev, {
-                    id: `gf${Date.now()}`,
-                    column: '', operator: '=', value: ''
-                  }])}
-                >
-                  <Plus className="size-3" /> Add filter
-                </Button>
-                {globalFilters.some(f => f.column) && (
-                  <Button
-                    size="sm" variant="ghost"
-                    className="h-7 px-2 text-xs gap-1 text-destructive/70 hover:text-destructive"
-                    onClick={() => setGlobalFilters([])}
+                      {/* Column */}
+                      <Select
+                        value={f.column || '__none__'}
+                        onValueChange={v => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, column: v === '__none__' ? '' : v } : x))}
+                      >
+                        <SelectTrigger className="h-8 text-[11px] border-none bg-transparent px-3 w-auto min-w-[80px] shadow-none focus:ring-0 rounded-none">
+                          <SelectValue placeholder="column…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" className="text-xs text-muted-foreground">column…</SelectItem>
+                          {allWidgetColumns.length > 0
+                            ? allWidgetColumns.map(col => <SelectItem key={col} value={col} className="text-xs font-mono">{col}</SelectItem>)
+                            : <SelectItem value="__type__" className="text-xs text-muted-foreground" disabled>Type column name below</SelectItem>
+                          }
+                        </SelectContent>
+                      </Select>
+
+                      {/* Operator */}
+                      <Select
+                        value={f.operator}
+                        onValueChange={v => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, operator: v as ChartFilter['operator'] } : x))}
+                      >
+                        <SelectTrigger className="h-8 text-[11px] border-none border-x border-border/40 bg-accent/10 text-accent px-2 w-auto min-w-[56px] shadow-none focus:ring-0 rounded-none">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            { v: '=', l: '=' }, { v: '!=', l: '≠' },
+                            { v: '>', l: '>' }, { v: '<', l: '<' },
+                            { v: '>=', l: '≥' }, { v: '<=', l: '≤' },
+                            { v: 'contains', l: '~' }, { v: 'not_contains', l: '!~' },
+                            { v: 'is_empty', l: 'empty' }, { v: 'is_not_empty', l: '!empty' },
+                          ].map(op => (
+                            <SelectItem key={op.v} value={op.v} className="text-xs">{op.l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {/* Value */}
+                      {f.operator !== 'is_empty' && f.operator !== 'is_not_empty' && (
+                        <input
+                          value={f.value}
+                          onChange={e => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, value: e.target.value } : x))}
+                          className="h-8 text-[11px] bg-transparent border-none outline-none px-2 w-24 min-w-0 placeholder:text-muted-foreground/50"
+                          placeholder="value…"
+                        />
+                      )}
+
+                      {/* Remove */}
+                      <button
+                        onClick={() => setGlobalFilters(prev => prev.filter((_, i) => i !== idx))}
+                        className="px-2 h-8 text-muted-foreground hover:text-destructive transition-colors border-l border-border/30"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add filter pill */}
+                  <button
+                    onClick={() => setGlobalFilters(prev => [...prev, { id: `gf${Date.now()}`, column: '', operator: '=', value: '' }])}
+                    className="h-8 px-3 rounded-full border border-dashed border-border/50 text-[11px] text-muted-foreground hover:border-accent/60 hover:text-foreground transition-colors flex items-center gap-1.5"
                   >
-                    <X className="size-3" /> Clear all
-                  </Button>
-                )}
+                    <Plus className="size-3" /> Add filter
+                  </button>
+
+                  {globalFilters.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground/50 italic">No active filters — click Add filter to begin</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -837,12 +954,12 @@ export default function VisualizePage() {
 
       {/* ── Edit Chart dialog ─────────────────────────────────────────────── */}
       <Dialog open={editDialogOpen} onOpenChange={v => { if (!v) setEditDialogOpen(false); }}>
-        <DialogContent className="glass-panel border-accent/20 sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`glass-panel border-accent/20 ${editBuildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="size-4 text-accent" /> Edit Chart
             </DialogTitle>
-            <DialogDescription>Update the chart title or reconfigure fields and options below.</DialogDescription>
+            <DialogDescription>Reconfigure with the Manual Builder or re-generate with AI.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-1">
@@ -858,6 +975,22 @@ export default function VisualizePage() {
               <p className="text-xs font-medium truncate">{editingWidget?.dataSourceName}</p>
             </div>
 
+            {/* Mode toggle */}
+            <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-xl w-fit">
+              <button
+                onClick={() => setEditBuildMode('manual')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${editBuildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Sliders className="size-3" /> Manual Builder
+              </button>
+              <button
+                onClick={() => setEditBuildMode('ai')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${editBuildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Sparkles className="size-3" /> AI Describe
+              </button>
+            </div>
+
             {editSchemaLoading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" /> Loading schema…
@@ -865,7 +998,7 @@ export default function VisualizePage() {
             )}
 
             {/* Manual builder */}
-            {!editSchemaLoading && (
+            {editBuildMode === 'manual' && !editSchemaLoading && (
               <ManualChartBuilder
                 columns={editSchema.columns}
                 rows={editSchema.rows}
@@ -875,6 +1008,33 @@ export default function VisualizePage() {
                 dbType={connections.find(c => c.id === editingWidget?.dataSourceId)?.type}
                 onGenerate={(config, title) => { setEditPreview(config); setEditTitle(title); }}
               />
+            )}
+
+            {/* AI mode */}
+            {editBuildMode === 'ai' && !editSchemaLoading && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart</label>
+                  <Textarea
+                    value={editPrompt}
+                    onChange={e => setEditPrompt(e.target.value)}
+                    className="resize-none text-sm"
+                    rows={3}
+                    placeholder="e.g. Show me revenue by month as a line chart…"
+                  />
+                </div>
+                <Button onClick={runEditGenerate} disabled={!editPrompt.trim() || editGenerating} className="w-full gap-2">
+                  {editGenerating
+                    ? <><Loader2 className="size-4 animate-spin" /> Generating…</>
+                    : <><Sparkles className="size-4" /> Re-generate Chart</>
+                  }
+                </Button>
+                {editPreview && (
+                  <div className="rounded-xl border border-border/40 bg-black/20 p-4">
+                    <ChartRenderer config={{ ...editPreview, title: editTitle }} height={240} />
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -892,10 +1052,10 @@ export default function VisualizePage() {
 
       {/* ── Add Chart Wizard ─────────────────────────────────────────────── */}
       <Dialog open={wizardOpen} onOpenChange={v => { if (!v) setWizardOpen(false); }}>
-        <DialogContent className={`glass-panel border-accent/20 ${step === 2 ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
+        <DialogContent className={`glass-panel border-accent/20 ${step === 2 && buildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sliders className="size-5 text-accent" />
+              <Sparkles className="size-5 text-accent" />
               Add Chart — {STEPS[step]}
             </DialogTitle>
             <DialogDescription>
@@ -1055,9 +1215,25 @@ export default function VisualizePage() {
             </div>
           )}
 
-          {/* ── Step 2: Build chart (Manual) ─── */}
+          {/* ── Step 2: Configure chart ─── */}
           {step === 2 && (
             <div className="space-y-3 py-1">
+
+              {/* Mode toggle */}
+              <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-xl w-fit">
+                <button
+                  onClick={() => { setBuildMode('manual'); setPreview(null); setPreviewTitle(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${buildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Sliders className="size-3" /> Manual Builder
+                </button>
+                <button
+                  onClick={() => { setBuildMode('ai'); setPreview(null); setPreviewTitle(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${buildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Sparkles className="size-3" /> AI Describe
+                </button>
+              </div>
 
               {/* Source badge */}
               <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
@@ -1069,15 +1245,34 @@ export default function VisualizePage() {
                 </p>
               </div>
 
-              <ManualChartBuilder
-                columns={sourceType === 'database' ? tableSchema.columns : (fileSchema?.columns || [])}
-                rows={sourceType === 'database' ? [] : (fileSchema?.rows || [])}
-                sourceType={sourceType}
-                connectionId={selectedConn || undefined}
-                tableName={selectedTable || folderFiles.find(f => f.id === selectedFile)?.name || ''}
-                dbType={connections.find(c => c.id === selectedConn)?.type}
-                onGenerate={(config, title) => { setPreview(config); setPreviewTitle(title); }}
-              />
+              {/* Manual mode */}
+              {buildMode === 'manual' && (
+                <ManualChartBuilder
+                  columns={sourceType === 'database' ? tableSchema.columns : (fileSchema?.columns || [])}
+                  rows={sourceType === 'database' ? [] : (fileSchema?.rows || [])}
+                  sourceType={sourceType}
+                  connectionId={selectedConn || undefined}
+                  tableName={selectedTable || folderFiles.find(f => f.id === selectedFile)?.name || ''}
+                  dbType={connections.find(c => c.id === selectedConn)?.type}
+                  onGenerate={(config, title) => { setPreview(config); setPreviewTitle(title); }}
+                />
+              )}
+
+              {/* AI mode */}
+              {buildMode === 'ai' && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart you want</label>
+                  <Textarea
+                    autoFocus
+                    value={prompt}
+                    onChange={e => setPrompt(e.target.value)}
+                    placeholder="e.g. Show sales by region as a bar chart, or Monthly revenue trend over time"
+                    className="resize-none text-sm"
+                    rows={4}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1.5">Be specific about columns and aggregation you want.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1113,9 +1308,17 @@ export default function VisualizePage() {
                   Next <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
-              {step === 2 && (
+              {step === 2 && buildMode === 'manual' && (
                 <Button onClick={() => setStep(3)} disabled={!preview}>
                   Use This Chart <ChevronRight className="size-4 ml-1" />
+                </Button>
+              )}
+              {step === 2 && buildMode === 'ai' && (
+                <Button onClick={runGenerate} disabled={!canProceed() || generating}>
+                  {generating
+                    ? <><Loader2 className="size-4 mr-2 animate-spin" /> Generating…</>
+                    : <><Sparkles className="size-4 mr-1" /> Generate Chart</>
+                  }
                 </Button>
               )}
               {step === 3 && (

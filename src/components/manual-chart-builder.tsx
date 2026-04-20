@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Plus, X, Play, Loader2, ChevronDown, ChevronRight, Filter, ArrowUpDown, Tag, GripHorizontal } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Plus, X, Play, Loader2, Filter, ArrowUpDown, Tag, GripHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -422,7 +422,6 @@ export function ManualChartBuilder({
   const [sortOrder,    setSortOrder]    = useState<SortOrder>('default');
   const [showLabels,   setShowLabels]   = useState(false);
   const [filters,      setFilters]      = useState<ChartFilter[]>([]);
-  const [filtersOpen,  setFiltersOpen]  = useState(false);
   const [dragOverZone, setDragOverZone] = useState<string | null>(null);
   const [preview,      setPreview]      = useState<GeneratedChartConfig | null>(null);
   const [running,      setRunning]      = useState(false);
@@ -510,7 +509,7 @@ export function ManualChartBuilder({
           series = p.series;
         } else {
           data   = sortRows(dbRows, xField, sortOrder);
-          series = measures.map((m, i) => ({
+          series = measures.map((m) => ({
             dataKey: measureDataKey(m),
             name: measureDisplayName(m),
             color: m.color,
@@ -553,8 +552,6 @@ export function ManualChartBuilder({
   };
 
   const groups = useMemo(() => Array.from(new Set(CHART_TYPES.map(c => c.group))), []);
-
-  const hasValueFilter = filters.some(f => f.operator !== 'is_empty' && f.operator !== 'is_not_empty');
 
   return (
     <div className="space-y-4">
@@ -877,32 +874,32 @@ export function ManualChartBuilder({
         </div>
       </div>
 
-      {/* ── Filters section ────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-border/40 overflow-hidden">
-        <button
-          onClick={() => setFiltersOpen(v => !v)}
-          className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary/20 transition-colors"
-        >
-          <span className="flex items-center gap-1.5">
-            <Filter className="size-3.5" />
-            Chart Filters
+      {/* ── Filters ──────────────────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <Filter className="size-3" />
+            Filters
             {filters.length > 0 && (
-              <Badge variant="outline" className="text-[9px] text-accent border-accent/30 ml-1 px-1.5 py-0">{filters.length}</Badge>
+              <span className="inline-flex items-center justify-center size-4 rounded-full bg-accent text-accent-foreground text-[9px] font-bold leading-none">{filters.length}</span>
             )}
-          </span>
-          {filtersOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        </button>
+          </p>
+          <button
+            onClick={() => setFilters(prev => [...prev, { id: newFilterId(), column: '', operator: '=', value: '' }])}
+            className="h-6 px-2.5 rounded-full text-[10px] font-medium border border-dashed border-border/50 text-muted-foreground hover:border-accent/60 hover:text-foreground transition-colors flex items-center gap-1"
+          >
+            <Plus className="size-2.5" /> Add
+          </button>
+        </div>
 
-        {filtersOpen && (
-          <div className="p-3 border-t border-border/40 space-y-2 bg-black/10">
-            <p className="text-[9px] text-muted-foreground">
-              {sourceType === 'file' ? 'Applied before aggregation — narrows the source rows.' : 'Added to SQL WHERE clause.'}
-            </p>
+        {filters.length === 0 ? (
+          <p className="text-[10px] text-muted-foreground/40 italic">No filters — all data rows included</p>
+        ) : (
+          <div className="space-y-1.5">
             {filters.map(f => (
-              <div key={f.id} className="flex gap-1.5 items-center">
-                {/* Column */}
+              <div key={f.id} className="grid grid-cols-[1fr_auto_1fr_auto] gap-1.5 items-center bg-secondary/15 rounded-lg px-2 py-1.5 border border-border/30">
                 <Select value={f.column || '__none__'} onValueChange={v => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, column: v === '__none__' ? '' : v } : x))}>
-                  <SelectTrigger className="h-7 text-xs w-28 shrink-0">
+                  <SelectTrigger className="h-6 text-[10px] min-w-0 border-none bg-secondary/50 rounded-md shadow-none focus:ring-0">
                     <SelectValue placeholder="Column…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -910,43 +907,35 @@ export function ManualChartBuilder({
                     {columns.map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                {/* Operator */}
                 <Select value={f.operator} onValueChange={v => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, operator: v as ChartFilter['operator'] } : x))}>
-                  <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                  <SelectTrigger className="h-6 text-[10px] w-[72px] shrink-0 border-none bg-accent/15 text-accent rounded-md shadow-none focus:ring-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {FILTER_OPERATORS.map(op => <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                {/* Value (hidden for is_empty / is_not_empty) */}
                 {f.operator !== 'is_empty' && f.operator !== 'is_not_empty' ? (
                   <Input
                     value={f.value}
                     onChange={e => setFilters(prev => prev.map(x => x.id === f.id ? { ...x, value: e.target.value } : x))}
-                    className="h-7 text-xs flex-1 min-w-0"
-                    placeholder="Value…"
+                    className="h-6 text-[10px] min-w-0 border-none bg-secondary/50 rounded-md shadow-none"
+                    placeholder="value…"
                   />
                 ) : (
-                  <div className="flex-1" />
+                  <div />
                 )}
-                {/* Remove */}
-                <Button
-                  size="icon" variant="ghost"
-                  className="size-7 shrink-0 hover:text-destructive"
+                <button
                   onClick={() => setFilters(prev => prev.filter(x => x.id !== f.id))}
+                  className="size-5 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
                 >
                   <X className="size-3" />
-                </Button>
+                </button>
               </div>
             ))}
-            <Button
-              size="sm" variant="ghost"
-              className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
-              onClick={() => setFilters(prev => [...prev, { id: newFilterId(), column: '', operator: '=', value: '' }])}
-            >
-              <Plus className="size-3" /> Add filter
-            </Button>
+            <p className="text-[9px] text-muted-foreground/40 italic">
+              {sourceType === 'file' ? 'Applied before aggregation.' : 'Added to SQL WHERE clause.'}
+            </p>
           </div>
         )}
       </div>
