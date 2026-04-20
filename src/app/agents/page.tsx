@@ -468,7 +468,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Skill Pipeline ────────────────────────────────────── */}
-                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
+                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
                   <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-4">
@@ -528,7 +528,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
-                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
+                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Databases */}
                   <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
@@ -601,7 +601,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
-                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
+                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Folders */}
                   <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
