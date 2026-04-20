@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, FolderOpen,
-  ChevronRight, Sparkles, RefreshCw, LayoutDashboard, PencilLine,
-  Check, X, Table, FileText, Sliders, Maximize2, Pencil,
-  Filter, Columns, Square,
+  ChevronRight, RefreshCw, LayoutDashboard, PencilLine,
+  Check, X, Table, FileText, Maximize2, Pencil,
+  Filter, Columns, Square, Sliders,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +13,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
-import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
 import { ManualChartBuilder } from "@/components/manual-chart-builder";
-import { generateChart, type GeneratedChartConfig, type ChartFilter } from "@/ai/flows/chart-generation";
-import type { DatabaseConnection, SystemSettings } from "@/lib/store";
-import { DEFAULT_SETTINGS } from "@/lib/store";
+import type { GeneratedChartConfig, ChartFilter } from "@/ai/flows/chart-generation";
+import type { DatabaseConnection } from "@/lib/store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,7 +53,7 @@ interface SchemaColumn { name: string; type: string; }
 
 // ── Wizard step labels ────────────────────────────────────────────────────────
 
-const STEPS = ['Data Source', 'Select Data', 'Describe Chart', 'Preview & Save'];
+const STEPS = ['Data Source', 'Select Data', 'Build Chart', 'Preview & Save'];
 
 // ── File parser (client-side: CSV, TSV, JSON) ────────────────────────────────
 
@@ -107,8 +104,6 @@ function parseFile(content: string, fileName: string): { columns: SchemaColumn[]
 export default function VisualizePage() {
   const { user } = useUser();
   const { toast } = useToast();
-  const { data: settingsData } = useDoc<SystemSettings>(null);
-  const visualizeModel = (settingsData || DEFAULT_SETTINGS).modelMapping.visualize;
 
   // Dashboard list
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
@@ -150,14 +145,7 @@ export default function VisualizePage() {
   const [fileSchema, setFileSchema] = useState<{ columns: SchemaColumn[]; rows: any[] } | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
 
-  // Step 2 — prompt
-  const [prompt, setPrompt] = useState('');
-
-  // Step 2 — build mode
-  const [buildMode, setBuildMode] = useState<'ai' | 'manual'>('ai');
-
-  // Step 3 — generated preview
-  const [generating, setGenerating] = useState(false);
+  // Step 3 — preview
   const [preview, setPreview] = useState<GeneratedChartConfig | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
   const [saving, setSaving] = useState(false);
@@ -172,13 +160,10 @@ export default function VisualizePage() {
   // ── Edit chart dialog ──────────────────────────────────────────────────
   const [editDialogOpen, setEditDialogOpen]   = useState(false);
   const [editingWidget,  setEditingWidget]    = useState<DashboardWidget | null>(null);
-  const [editBuildMode,  setEditBuildMode]    = useState<'ai' | 'manual'>('ai');
   const [editTitle,      setEditTitle]        = useState('');
-  const [editPrompt,     setEditPrompt]       = useState('');
   const [editPreview,    setEditPreview]      = useState<GeneratedChartConfig | null>(null);
   const [editSchema,     setEditSchema]       = useState<{ columns: SchemaColumn[]; rows: any[] }>({ columns: [], rows: [] });
   const [editSchemaLoading, setEditSchemaLoading] = useState(false);
-  const [editGenerating, setEditGenerating]   = useState(false);
   const [editSaving,     setEditSaving]       = useState(false);
 
   // ── Global dashboard filters ─────────────────────────────────────────────
@@ -268,8 +253,7 @@ export default function VisualizePage() {
     setSourceType('database');
     setSelectedConn(''); setTables([]); setSelectedTable(''); setTableSchema({ columns: [], sampleRows: [] });
     setSelectedFolder(''); setFolderFiles([]); setSelectedFile(''); setFileSchema(null);
-    setPrompt(''); setPreview(null); setPreviewTitle('');
-    setBuildMode('ai');
+    setPreview(null); setPreviewTitle('');
     setWizardOpen(true);
   };
 
@@ -330,54 +314,6 @@ export default function VisualizePage() {
     setFileLoading(false);
   };
 
-  // ── Step 2: generate chart ───────────────────────────────────────────────
-
-  const runGenerate = async () => {
-    setGenerating(true);
-    setPreview(null);
-    try {
-      let result: GeneratedChartConfig;
-      if (sourceType === 'database') {
-        const conn = connections.find(c => c.id === selectedConn);
-        result = await generateChart({
-          sourceType: 'database',
-          tableName: selectedTable,
-          columns: tableSchema.columns,
-          sampleRows: tableSchema.sampleRows,
-          prompt,
-          dbType: conn?.type,
-          connectionId: selectedConn,
-          userId: user?.uid,
-          preferredModel: visualizeModel,
-        });
-      } else {
-        const file = folderFiles.find(f => f.id === selectedFile);
-        result = await generateChart({
-          sourceType: 'file',
-          tableName: file?.name || 'data',
-          columns: fileSchema?.columns || [],
-          sampleRows: fileSchema?.rows?.slice(0, 5) || [],
-          allRows: fileSchema?.rows,
-          prompt,
-          preferredModel: visualizeModel,
-        });
-      }
-      setPreview(result);
-      setPreviewTitle(result.title);
-      setStep(3);
-    } catch (err: any) {
-      const msg: string = err.message || '';
-      const friendly =
-        msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')
-          ? 'AI quota exceeded for this model. Switch to a different model in Settings or try again later.'
-          : msg.includes('401') || msg.toLowerCase().includes('api key') || msg.toLowerCase().includes('unauthorized')
-          ? 'Invalid or missing API key. Check your model settings.'
-          : msg;
-      toast({ title: 'Generation failed', description: friendly, variant: 'destructive' });
-    }
-    setGenerating(false);
-  };
-
   // ── Step 3: save widget ──────────────────────────────────────────────────
 
   const saveWidget = async () => {
@@ -397,7 +333,7 @@ export default function VisualizePage() {
           dataSourceId: sourceType === 'database' ? selectedConn : selectedFile,
           dataSourceName: sourceType === 'database' ? `${conn?.name} / ${selectedTable}` : file?.name,
           dataQuery: preview.sql,
-          prompt,
+          prompt: '',
           gridW: 1,
         }),
       });
@@ -473,14 +409,11 @@ export default function VisualizePage() {
     setEditPreview(null);
     setEditSchema({ columns: [], rows: [] });
     setEditTitle('');
-    setEditPrompt('');
-    setEditBuildMode('ai');
     setEditSchemaLoading(true);
     setEditDialogOpen(true);
     // Now populate with the target widget
     setEditingWidget(widget);
     setEditTitle(widget.title);
-    setEditPrompt(widget.prompt);
     setEditPreview(widget.chartConfig);
 
     // Ensure connections are in state (needed for dbType lookup in ManualChartBuilder)
@@ -514,31 +447,6 @@ export default function VisualizePage() {
     setEditSchemaLoading(false);
   };
 
-  // ── Re-generate chart inside edit dialog (AI mode) ────────────────────────
-  const runEditGenerate = async () => {
-    if (!editingWidget) return;
-    setEditGenerating(true);
-    try {
-      const tableName = editingWidget.dataSourceName.split(' / ').pop()?.trim() || '';
-      const conn = connections.find(c => c.id === editingWidget.dataSourceId);
-      const result = await generateChart(
-        editingWidget.dataSourceType === 'database'
-          ? { sourceType: 'database', tableName, columns: editSchema.columns, sampleRows: editSchema.rows, prompt: editPrompt, dbType: conn?.type, connectionId: editingWidget.dataSourceId, userId: user?.uid, preferredModel: visualizeModel }
-          : { sourceType: 'file', tableName: editingWidget.dataSourceName, columns: editSchema.columns, sampleRows: editSchema.rows.slice(0, 5), allRows: editSchema.rows, prompt: editPrompt, preferredModel: visualizeModel }
-      );
-      setEditPreview(result);
-      setEditTitle(result.title);
-    } catch (err: any) {
-      const msg: string = err.message || '';
-      const friendly =
-        msg.includes('429') || msg.toLowerCase().includes('quota') ? 'AI quota exceeded. Try again later or switch model in Settings.'
-        : msg.includes('401') || msg.toLowerCase().includes('api key') ? 'Invalid or missing API key.'
-        : msg;
-      toast({ title: 'Re-generation failed', description: friendly, variant: 'destructive' });
-    }
-    setEditGenerating(false);
-  };
-
   // ── Save edited widget ───────────────────────────────────────────────────
   const saveEditWidget = async () => {
     if (!editingWidget || !editPreview || !selected) return;
@@ -552,7 +460,7 @@ export default function VisualizePage() {
           chartType: editPreview.chartType,
           chartConfig: { ...editPreview, title: editTitle },
           dataQuery: editPreview.sql ?? null,
-          prompt: editPrompt,
+          prompt: '',
         }),
       });
       const json = await res.json();
@@ -627,10 +535,7 @@ export default function VisualizePage() {
       if (sourceType === 'database') return !!selectedTable && tableSchema.columns.length > 0;
       return !!selectedFile && !!fileSchema;
     }
-    if (step === 2) {
-      if (buildMode === 'manual') return !!preview;
-      return prompt.trim().length > 3;
-    }
+    if (step === 2) return !!preview;
     return false;
   };
 
@@ -762,7 +667,7 @@ export default function VisualizePage() {
                   )}
                 </Button>
                 <Button onClick={openWizard} className="gap-2">
-                  <Sparkles className="size-4" /> Add Chart
+                  <Plus className="size-4" /> Add Chart
                 </Button>
               </div>
             </div>
@@ -847,9 +752,9 @@ export default function VisualizePage() {
             {/* Widget grid */}
             {selected.widgets.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 text-muted-foreground border-2 border-dashed border-border rounded-2xl">
-                <Sparkles className="size-10 mb-4 opacity-20" />
+                <BarChart2 className="size-10 mb-4 opacity-20" />
                 <p className="text-sm font-medium">No charts yet</p>
-                <p className="text-xs mt-1">Click "Add Chart" to create your first AI-generated visualization</p>
+                <p className="text-xs mt-1">Click "Add Chart" to configure your first visualization</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -932,12 +837,12 @@ export default function VisualizePage() {
 
       {/* ── Edit Chart dialog ─────────────────────────────────────────────── */}
       <Dialog open={editDialogOpen} onOpenChange={v => { if (!v) setEditDialogOpen(false); }}>
-        <DialogContent className={`glass-panel border-accent/20 ${editBuildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
+        <DialogContent className="glass-panel border-accent/20 sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="size-4 text-accent" /> Edit Chart
             </DialogTitle>
-            <DialogDescription>Update title, regenerate with AI, or rebuild manually.</DialogDescription>
+            <DialogDescription>Update the chart title or reconfigure fields and options below.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-1">
@@ -953,52 +858,14 @@ export default function VisualizePage() {
               <p className="text-xs font-medium truncate">{editingWidget?.dataSourceName}</p>
             </div>
 
-            {/* Mode toggle */}
-            <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-lg w-fit">
-              <button
-                onClick={() => setEditBuildMode('ai')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${editBuildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <Sparkles className="size-3" /> AI Describe
-              </button>
-              <button
-                onClick={() => setEditBuildMode('manual')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${editBuildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <Sliders className="size-3" /> Manual Builder
-              </button>
-            </div>
-
             {editSchemaLoading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" /> Loading schema…
               </div>
             )}
 
-            {/* AI mode */}
-            {editBuildMode === 'ai' && !editSchemaLoading && (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart</label>
-                  <Textarea
-                    value={editPrompt}
-                    onChange={e => setEditPrompt(e.target.value)}
-                    className="resize-none text-sm"
-                    rows={3}
-                    placeholder="Describe what you want to visualise…"
-                  />
-                </div>
-                <Button onClick={runEditGenerate} disabled={!editPrompt.trim() || editGenerating} className="w-full gap-2">
-                  {editGenerating
-                    ? <><Loader2 className="size-4 animate-spin" /> Generating…</>
-                    : <><Sparkles className="size-4" /> Re-generate Chart</>
-                  }
-                </Button>
-              </div>
-            )}
-
-            {/* Manual builder mode */}
-            {editBuildMode === 'manual' && !editSchemaLoading && (
+            {/* Manual builder */}
+            {!editSchemaLoading && (
               <ManualChartBuilder
                 columns={editSchema.columns}
                 rows={editSchema.rows}
@@ -1008,13 +875,6 @@ export default function VisualizePage() {
                 dbType={connections.find(c => c.id === editingWidget?.dataSourceId)?.type}
                 onGenerate={(config, title) => { setEditPreview(config); setEditTitle(title); }}
               />
-            )}
-
-            {/* Live preview */}
-            {editPreview && (
-              <div className="rounded-xl border border-border/40 bg-black/20 p-4">
-                <ChartRenderer config={{ ...editPreview, title: editTitle }} height={240} />
-              </div>
             )}
           </div>
 
@@ -1032,10 +892,10 @@ export default function VisualizePage() {
 
       {/* ── Add Chart Wizard ─────────────────────────────────────────────── */}
       <Dialog open={wizardOpen} onOpenChange={v => { if (!v) setWizardOpen(false); }}>
-        <DialogContent className={`glass-panel border-accent/20 ${step === 2 && buildMode === 'manual' ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
+        <DialogContent className={`glass-panel border-accent/20 ${step === 2 ? 'sm:max-w-4xl max-h-[90vh] overflow-y-auto' : 'sm:max-w-2xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="size-5 text-accent" />
+              <Sliders className="size-5 text-accent" />
               Add Chart — {STEPS[step]}
             </DialogTitle>
             <DialogDescription>
@@ -1195,25 +1055,9 @@ export default function VisualizePage() {
             </div>
           )}
 
-          {/* ── Step 2: Build chart (AI or Manual) ─── */}
+          {/* ── Step 2: Build chart (Manual) ─── */}
           {step === 2 && (
             <div className="space-y-3 py-1">
-
-              {/* Mode toggle */}
-              <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-lg w-fit">
-                <button
-                  onClick={() => { setBuildMode('ai'); setPreview(null); setPreviewTitle(''); }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${buildMode === 'ai' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  <Sparkles className="size-3" /> AI Describe
-                </button>
-                <button
-                  onClick={() => { setBuildMode('manual'); setPreview(null); setPreviewTitle(''); }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${buildMode === 'manual' ? 'bg-accent text-accent-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  <Sliders className="size-3" /> Manual Builder
-                </button>
-              </div>
 
               {/* Source badge */}
               <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
@@ -1225,34 +1069,15 @@ export default function VisualizePage() {
                 </p>
               </div>
 
-              {/* AI mode */}
-              {buildMode === 'ai' && (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Describe the chart you want</label>
-                  <Textarea
-                    autoFocus
-                    value={prompt}
-                    onChange={e => setPrompt(e.target.value)}
-                    placeholder="e.g. Show me sales by region as a bar chart, or Monthly revenue trend over time"
-                    className="resize-none text-sm"
-                    rows={4}
-                  />
-                  <p className="text-[10px] text-muted-foreground mt-1.5">Be specific about the columns you want to use and how to aggregate them.</p>
-                </div>
-              )}
-
-              {/* Manual mode */}
-              {buildMode === 'manual' && (
-                <ManualChartBuilder
-                  columns={sourceType === 'database' ? tableSchema.columns : (fileSchema?.columns || [])}
-                  rows={sourceType === 'database' ? [] : (fileSchema?.rows || [])}
-                  sourceType={sourceType}
-                  connectionId={selectedConn || undefined}
-                  tableName={selectedTable || folderFiles.find(f => f.id === selectedFile)?.name || ''}
-                  dbType={connections.find(c => c.id === selectedConn)?.type}
-                  onGenerate={(config, title) => { setPreview(config); setPreviewTitle(title); }}
-                />
-              )}
+              <ManualChartBuilder
+                columns={sourceType === 'database' ? tableSchema.columns : (fileSchema?.columns || [])}
+                rows={sourceType === 'database' ? [] : (fileSchema?.rows || [])}
+                sourceType={sourceType}
+                connectionId={selectedConn || undefined}
+                tableName={selectedTable || folderFiles.find(f => f.id === selectedFile)?.name || ''}
+                dbType={connections.find(c => c.id === selectedConn)?.type}
+                onGenerate={(config, title) => { setPreview(config); setPreviewTitle(title); }}
+              />
             </div>
           )}
 
@@ -1288,12 +1113,7 @@ export default function VisualizePage() {
                   Next <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
-              {step === 2 && buildMode === 'ai' && (
-                <Button onClick={runGenerate} disabled={!canProceed() || generating}>
-                  {generating ? <><Loader2 className="size-4 mr-2 animate-spin" /> Generating…</> : <><Sparkles className="size-4 mr-1" /> Generate Chart</>}
-                </Button>
-              )}
-              {step === 2 && buildMode === 'manual' && (
+              {step === 2 && (
                 <Button onClick={() => setStep(3)} disabled={!preview}>
                   Use This Chart <ChevronRight className="size-4 ml-1" />
                 </Button>
