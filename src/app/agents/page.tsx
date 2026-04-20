@@ -468,10 +468,10 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Skill Pipeline ────────────────────────────────────── */}
-                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
-                  <div className="min-h-0 flex flex-col gap-3">
+                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
+                  <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                    <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
                         {availableSkills.map((skill) => {
                           const active = selectedSkills.includes(skill.id);
@@ -494,9 +494,9 @@ export default function AgentsPage() {
                       </div>
                     </ScrollArea>
                   </div>
-                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Pipeline</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-2">
+                    <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
                         {selectedSkills.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No skills selected yet</p>
@@ -528,11 +528,11 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
-                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
+                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Databases */}
-                  <div className="min-h-0 flex flex-col gap-3">
+                  <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                    <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
                         {dbConnections.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
@@ -568,9 +568,9 @@ export default function AgentsPage() {
                   </div>
 
                   {/* RIGHT: Connected Sources */}
-                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Connected Sources</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-2">
+                    <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
                         {selectedDatabases.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No databases selected yet</p>
@@ -601,11 +601,11 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
-                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
+                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Folders */}
-                  <div className="min-h-0 flex flex-col gap-3">
+                  <div className="flex flex-col gap-3 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-4">
+                    <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
                         {foldersLoading ? (
                           <div className="flex items-center justify-center py-12">
@@ -696,9 +696,9 @@ export default function AgentsPage() {
                   </div>
 
                   {/* RIGHT: Active Context */}
-                  <div className="min-h-0 flex flex-col gap-3 bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Context</Label>
-                    <ScrollArea className="flex-1 min-h-0 pr-2">
+                    <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
                         {selectedFolders.length === 0 && selectedFiles.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No files selected yet</p>
