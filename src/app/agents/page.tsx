@@ -388,10 +388,10 @@ export default function AgentsPage() {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="p-6 h-[60vh] overflow-hidden">
+              <div className="px-6 pb-6 pt-4 h-[60vh] overflow-hidden flex flex-col">
 
                 {/* ── Persona & Goals ───────────────────────────────────── */}
-                <TabsContent value="identity" className="space-y-6 mt-0 h-full overflow-y-auto custom-scrollbar pr-2">
+                <TabsContent value="identity" className="space-y-6 mt-0 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
                   <div className="grid gap-3 p-4 rounded-xl bg-accent/5 border border-accent/10">
                     <Label className="text-accent font-bold tracking-widest uppercase text-[10px]">Cognitive Seed</Label>
                     <div className="flex gap-2">
@@ -440,7 +440,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Cognitive Settings ────────────────────────────────── */}
-                <TabsContent value="parameters" className="space-y-8 mt-0 h-full overflow-y-auto custom-scrollbar pr-2">
+                <TabsContent value="parameters" className="space-y-8 mt-0 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
                   <div className="p-6 rounded-2xl bg-secondary/10 border border-border space-y-10">
                     <div className="space-y-5">
                       <div className="flex justify-between items-center">
@@ -468,7 +468,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Skill Pipeline ────────────────────────────────────── */}
-                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
                   <div className="min-h-0 flex flex-col gap-3">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
                     <ScrollArea className="flex-1 min-h-0 pr-4">
@@ -528,7 +528,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
-                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
                   {/* LEFT: Available Databases */}
                   <div className="min-h-0 flex flex-col gap-3">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
@@ -601,7 +601,7 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
-                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
+                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 flex-1 min-h-0 overflow-hidden">
                   {/* LEFT: Available Folders */}
                   <div className="min-h-0 flex flex-col gap-3">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
