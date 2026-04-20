@@ -604,7 +604,7 @@ export default function AgentsPage() {
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
                 <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-0 h-full overflow-hidden">
-                  {/* LEFT: Folder tree for selection */}
+                  {/* LEFT: Available Folders */}
                   <div className="space-y-4 overflow-hidden flex flex-col">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Folders &amp; Files</Label>
                     <ScrollArea className="flex-1 pr-4">
@@ -616,12 +616,10 @@ export default function AgentsPage() {
                         <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
                           <FolderOpen className="size-10 mb-3 text-muted-foreground opacity-20" />
                           <p className="text-sm font-bold mb-1">No file folders</p>
-                          <p className="text-xs text-muted-foreground">
-                            Create folders and upload files in the <strong>Databases → File Storage</strong> tab first.
-                          </p>
+                          <p className="text-xs text-muted-foreground">Create folders in the <strong>Databases → File Storage</strong> tab first.</p>
                         </div>
                       ) : (
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           {fileFolders.map((folder: FileFolder) => {
                             const isExpanded = expandedFolderIds.has(folder.id);
                             const isLoadingFiles = loadingFolderIds.has(folder.id);
@@ -631,44 +629,38 @@ export default function AgentsPage() {
 
                             return (
                               <div key={folder.id} className="rounded-xl border border-border overflow-hidden">
-                                {/* Folder row */}
+                                {/* Folder card — click = toggle selection (same pattern as skill module cards) */}
                                 <div
-                                  className={`flex items-center gap-2 px-3 py-2.5 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
+                                  className={`flex items-start gap-3 p-3 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10 border-accent/40' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
+                                  onClick={() => toggleFolder(folder.id)}
                                 >
-                                  {/* Folder-level checkbox */}
-                                  <div
-                                    className={`size-4 rounded flex items-center justify-center border shrink-0 cursor-pointer ${fullySelected ? 'bg-accent border-accent' : partial ? 'bg-accent/30 border-accent/50' : 'border-border'}`}
-                                    onClick={() => toggleFolder(folder.id)}
-                                  >
+                                  <div className={`size-4 rounded flex items-center justify-center border shrink-0 mt-0.5 ${fullySelected ? 'bg-accent border-accent' : partial ? 'bg-accent/30 border-accent/50' : 'border-border'}`}>
                                     {fullySelected && <Check className="size-2.5 text-white" />}
                                     {partial && <Minus className="size-2.5 text-accent" />}
                                   </div>
-
-                                  {/* Expand toggle */}
+                                  {isExpanded ? (
+                                    <FolderOpen className="size-4 text-blue-400 shrink-0 mt-0.5" />
+                                  ) : (
+                                    <FolderClosed className="size-4 text-blue-400 shrink-0 mt-0.5" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold truncate">{folder.name}</p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}
+                                      {fullySelected && <span className="ml-1.5 text-accent">· entire folder</span>}
+                                      {partial && <span className="ml-1.5 text-accent/70">· partial</span>}
+                                    </p>
+                                  </div>
+                                  {/* Expand chevron — stopPropagation so it doesn't trigger folder selection */}
                                   <button
-                                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                    onClick={() => toggleFolderExpand(folder.id)}
+                                    className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground transition-colors mt-0.5"
+                                    onClick={(e) => { e.stopPropagation(); toggleFolderExpand(folder.id); }}
                                   >
-                                    <span className="shrink-0 text-muted-foreground">
-                                      {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                                    </span>
-                                    {isExpanded ? (
-                                      <FolderOpen className="size-4 text-blue-400 shrink-0" />
-                                    ) : (
-                                      <FolderClosed className="size-4 text-blue-400 shrink-0" />
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <span className="text-xs font-bold truncate block">{folder.name}</span>
-                                      <span className="text-[10px] text-muted-foreground">
-                                        {folder.fileCount ?? 0} file{folder.fileCount !== 1 ? 's' : ''}
-                                        {fullySelected && <span className="ml-1.5 text-accent">· entire folder</span>}
-                                        {partial && <span className="ml-1.5 text-accent/70">· partial</span>}
-                                      </span>
-                                    </div>
+                                    {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                                   </button>
                                 </div>
 
-                                {/* File list (visible when expanded) */}
+                                {/* File sub-list (visible when expanded) */}
                                 {isExpanded && (
                                   <div className="border-t border-border bg-background/30">
                                     {isLoadingFiles ? (
@@ -677,9 +669,7 @@ export default function AgentsPage() {
                                         <span className="text-xs text-muted-foreground">Loading files...</span>
                                       </div>
                                     ) : files.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground text-center py-4 opacity-50">
-                                        No files in this folder
-                                      </p>
+                                      <p className="text-xs text-muted-foreground text-center py-4 opacity-50">No files in this folder</p>
                                     ) : (
                                       <div className="p-2 space-y-1">
                                         {files.map((file: FileRecord) => {
@@ -691,19 +681,13 @@ export default function AgentsPage() {
                                               className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all ${fileSelected ? 'bg-accent/10' : 'hover:bg-secondary/20'}`}
                                               onClick={() => toggleFile(file.id, folder.id)}
                                             >
-                                              <div className={`size-4 rounded flex items-center justify-center border shrink-0 ${fileSelected ? 'bg-accent border-accent' : 'border-border'}`}>
-                                                {fileSelected && <Check className="size-2.5 text-white" />}
+                                              <div className={`size-3.5 rounded flex items-center justify-center border shrink-0 ${fileSelected ? 'bg-accent border-accent' : 'border-border'}`}>
+                                                {fileSelected && <Check className="size-2 text-white" />}
                                               </div>
                                               <File className="size-3.5 text-muted-foreground shrink-0" />
                                               <span className="text-xs truncate flex-1">{file.name}</span>
-                                              {coveredByFolder && (
-                                                <span className="text-[9px] text-accent/60 shrink-0">via folder</span>
-                                              )}
-                                              {file.size > 0 && (
-                                                <span className="text-[9px] text-muted-foreground shrink-0">
-                                                  {(file.size / 1024).toFixed(0)} KB
-                                                </span>
-                                              )}
+                                              {coveredByFolder && <span className="text-[9px] text-accent/60 shrink-0">via folder</span>}
+                                              {file.size > 0 && <span className="text-[9px] text-muted-foreground shrink-0">{(file.size / 1024).toFixed(0)} KB</span>}
                                             </div>
                                           );
                                         })}
