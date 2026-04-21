@@ -9,6 +9,7 @@ import {
   Settings2, Hash, Type, Link2,
   PanelRightClose, PanelRightOpen, Layers, ArrowRight,
   Eye, EyeOff, ChevronDown, ChevronUp,
+  Calculator, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,9 +79,16 @@ interface FieldMapping {
   hidden: boolean;
 }
 
+interface CalculatedField {
+  id: string;
+  name: string;
+  expression: string;
+  fieldType: "dimension" | "measure";
+}
+
 // ── Wizard steps ──────────────────────────────────────────────────────────────
 
-const STEPS = ["Data Source", "Select Data", "Configure Chart", "Preview & Save"];
+const STEPS = ["Data Source", "Select Data", "Prepare Data", "Configure Chart", "Preview & Save"];
 
 // ── Workflow guidance steps (BI-style) ────────────────────────────────────────
 
@@ -272,6 +280,13 @@ export default function VisualizePage() {
   const [editingFieldIdx, setEditingFieldIdx] = useState<number | null>(null);
   const [editingFieldName, setEditingFieldName] = useState("");
 
+  // ── Calculated fields ─────────────────────────────────────────────────────
+  const [calculatedFields, setCalculatedFields] = useState<CalculatedField[]>([]);
+  const [showCalcForm, setShowCalcForm] = useState(false);
+  const [calcFormName, setCalcFormName] = useState("");
+  const [calcFormExpr, setCalcFormExpr] = useState("");
+  const [calcFormType, setCalcFormType] = useState<"dimension" | "measure">("measure");
+
   // ── Sample data preview in right panel ───────────────────────────────────
   const [dataPanelSchema, setDataPanelSchema] = useState<SchemaColumn[]>([]);
   const [dataPanelLoading, setDataPanelLoading] = useState(false);
@@ -397,6 +412,11 @@ export default function VisualizePage() {
     setJoinTable2Schema([]);
     setJoinPreviewData(null);
     setFieldMappings([]);
+    setCalculatedFields([]);
+    setShowCalcForm(false);
+    setCalcFormName("");
+    setCalcFormExpr("");
+    setCalcFormType("measure");
     setWizardOpen(true);
   };
 
@@ -551,25 +571,92 @@ export default function VisualizePage() {
     setFileLoading(false);
   };
 
+  // ── Data prep helpers ─────────────────────────────────────────────────────
+
+  // Compute effective columns after applying field mappings + calculated fields
+  const getEffectiveColumns = useCallback((): SchemaColumn[] => {
+    const base =
+      sourceType === "database"
+        ? tableSchema.columns
+        : fileSchema?.columns || [];
+    const mapped = base
+      .filter((c) => {
+        const fm = fieldMappings.find((f) => f.originalName === c.name);
+        return !fm?.hidden;
+      })
+      .map((c) => {
+        const fm = fieldMappings.find((f) => f.originalName === c.name);
+        return {
+          name: fm?.displayName || c.name,
+          type:
+            fm?.fieldType === "measure"
+              ? "number"
+              : fm?.fieldType === "dimension"
+              ? "text"
+              : c.type,
+        };
+      });
+    const calcCols: SchemaColumn[] = calculatedFields.map((cf) => ({
+      name: cf.name,
+      type: cf.fieldType === "measure" ? "number" : "text",
+    }));
+    return [...mapped, ...calcCols];
+  }, [sourceType, tableSchema.columns, fileSchema?.columns, fieldMappings, calculatedFields]);
+
+  // Safely evaluate a simple math expression against a row (for file sources)
+  function evalCalcField(expr: string, row: Record<string, any>): any {
+    try {
+      const substituted = expr.replace(/\b([a-zA-Z_]\w*)\b/g, (m) =>
+        m in row ? String(row[m]) : m
+      );
+      if (!/^[\d\s+\-*/.(),]+$/.test(substituted)) return expr;
+      // eslint-disable-next-line no-new-func
+      return Function(`"use strict"; return (${substituted})`)();
+    } catch {
+      return null;
+    }
+  }
+
+  // Apply calculated fields to file rows
+  const getEffectiveRows = useCallback(
+    (rows: any[]): any[] => {
+      if (calculatedFields.length === 0) return rows;
+      return rows.map((row) => {
+        const nr = { ...row };
+        calculatedFields.forEach((cf) => {
+          nr[cf.name] = evalCalcField(cf.expression, row);
+        });
+        return nr;
+      });
+    },
+    [calculatedFields]
+  );
+
   // ── AI chart generation ───────────────────────────────────────────────────
   const runGenerate = async () => {
     setGenerating(true);
     setPreview(null);
     try {
       let result: GeneratedChartConfig;
+      const effectiveCols = getEffectiveColumns();
+      const calcContext =
+        calculatedFields.length > 0
+          ? `\nCalculated fields available: ${calculatedFields.map((cf) => `${cf.name} = (${cf.expression})`).join(", ")}`
+          : "";
+      const enhancedPrompt = prompt + calcContext;
+
       if (sourceType === "database") {
         const conn = connections.find((c) => c.id === selectedConn);
-        const joinSQL = joinEnabled && joinPreviewData
-          ? buildJoinSQL(selectedTable, joinTable2Schema, joinConfig)
-          : undefined;
+        const joinSQL =
+          joinEnabled && joinPreviewData
+            ? buildJoinSQL(selectedTable, joinTable2Schema, joinConfig)
+            : undefined;
         result = await generateChart({
           sourceType: "database",
-          tableName: joinSQL
-            ? `(${joinSQL}) AS joined_data`
-            : selectedTable,
-          columns: tableSchema.columns,
+          tableName: joinSQL ? `(${joinSQL}) AS joined_data` : selectedTable,
+          columns: effectiveCols,
           sampleRows: tableSchema.sampleRows,
-          prompt,
+          prompt: enhancedPrompt,
           dbType: conn?.type,
           connectionId: selectedConn,
           userId: user?.uid,
@@ -577,19 +664,21 @@ export default function VisualizePage() {
         });
       } else {
         const file = folderFiles.find((f) => f.id === selectedFile);
+        const baseRows = fileSchema?.rows || [];
+        const effectiveRows = getEffectiveRows(baseRows);
         result = await generateChart({
           sourceType: "file",
           tableName: file?.name || "data",
-          columns: fileSchema?.columns || [],
-          sampleRows: fileSchema?.rows?.slice(0, 5) || [],
-          allRows: fileSchema?.rows,
-          prompt,
+          columns: effectiveCols,
+          sampleRows: effectiveRows.slice(0, 5),
+          allRows: effectiveRows,
+          prompt: enhancedPrompt,
           preferredModel: visualizeModel,
         });
       }
       setPreview(result);
       setPreviewTitle(result.title);
-      setStep(3);
+      setStep(4);
     } catch (err: any) {
       const msg: string = err.message || "";
       const friendly = msg.includes("429") || msg.toLowerCase().includes("quota")
@@ -654,6 +743,42 @@ export default function VisualizePage() {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
     }
     setSaving(false);
+  };
+
+  // ── Duplicate widget ──────────────────────────────────────────────────────
+  const duplicateWidget = async (widget: DashboardWidget) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/dashboards/${selected.id}/widgets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `${widget.title} (copy)`,
+          chartType: widget.chartType,
+          chartConfig: { ...widget.chartConfig, title: `${widget.title} (copy)` },
+          dataSourceType: widget.dataSourceType,
+          dataSourceId: widget.dataSourceId,
+          dataSourceName: widget.dataSourceName,
+          dataQuery: widget.dataQuery,
+          prompt: widget.prompt,
+          gridW: widget.gridW,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        setSelected((prev) =>
+          prev ? { ...prev, widgets: [...prev.widgets, json.data] } : prev
+        );
+        setDashboards((prev) =>
+          prev.map((d) =>
+            d.id === selected.id ? { ...d, widgetCount: d.widgetCount + 1 } : d
+          )
+        );
+        toast({ title: "Chart duplicated", description: `"${widget.title} (copy)" added.` });
+      }
+    } catch (err: any) {
+      toast({ title: "Duplicate failed", description: err.message, variant: "destructive" });
+    }
   };
 
   // ── Delete widget ─────────────────────────────────────────────────────────
@@ -973,7 +1098,8 @@ export default function VisualizePage() {
         return !!selectedTable && tableSchema.columns.length > 0;
       return !!selectedFile && !!fileSchema;
     }
-    if (step === 2) {
+    if (step === 2) return true; // Prepare Data — always skippable
+    if (step === 3) {
       if (buildMode === "manual") return !!preview;
       return prompt.trim().length > 3;
     }
@@ -1407,6 +1533,15 @@ export default function VisualizePage() {
                               onClick={() => openEditDialog(widget)}
                             >
                               <Pencil className="size-3" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7"
+                              title="Duplicate chart"
+                              onClick={() => duplicateWidget(widget)}
+                            >
+                              <Copy className="size-3" />
                             </Button>
                             {widget.dataSourceType === "database" &&
                               widget.dataQuery && (
@@ -1882,6 +2017,14 @@ export default function VisualizePage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="w-full h-7 text-xs gap-1.5"
+                          onClick={() => duplicateWidget(focusedWidget)}
+                        >
+                          <Copy className="size-3" /> Duplicate Chart
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           className="w-full h-7 text-xs gap-1.5 hover:text-destructive hover:border-destructive/40"
                           onClick={() => deleteWidget(focusedWidget.id)}
                         >
@@ -2095,7 +2238,7 @@ export default function VisualizePage() {
         <SheetContent
           side="right"
           className={`flex flex-col p-0 overflow-hidden ${
-            step === 2 && buildMode === "manual"
+            step === 3 && buildMode === "manual"
               ? "w-[700px] sm:max-w-[700px]"
               : "w-[520px] sm:max-w-[520px]"
           }`}
@@ -2752,8 +2895,338 @@ export default function VisualizePage() {
                 </div>
               )}
 
-              {/* ── Step 2: Configure chart ── */}
+              {/* ── Step 2: Prepare Data ── */}
               {step === 2 && (
+                <div className="space-y-5">
+                  {/* Dataset summary */}
+                  <div className="rounded-xl border border-border/50 bg-secondary/10 p-3 flex items-center gap-3">
+                    {sourceType === "database" ? (
+                      <Database className="size-4 text-accent shrink-0" />
+                    ) : (
+                      <FileText className="size-4 text-accent shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">
+                        {sourceType === "database"
+                          ? joinPreviewData
+                            ? `${selectedTable} ⋈ ${joinConfig.table2}`
+                            : selectedTable
+                          : folderFiles.find((f) => f.id === selectedFile)?.name}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {fieldMappings.filter((f) => !f.hidden).length} visible fields ·{" "}
+                        {sourceType === "database"
+                          ? `${tableSchema.sampleRows.length} sample rows`
+                          : `${fileSchema?.rows.length ?? 0} rows`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Sample data table */}
+                  {(() => {
+                    const rows =
+                      sourceType === "database"
+                        ? tableSchema.sampleRows.slice(0, 5)
+                        : (fileSchema?.rows || []).slice(0, 5);
+                    const cols =
+                      sourceType === "database"
+                        ? tableSchema.columns.slice(0, 6)
+                        : (fileSchema?.columns || []).slice(0, 6);
+                    if (rows.length === 0 || cols.length === 0) return null;
+                    return (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                          Sample Data (up to 5 rows)
+                        </p>
+                        <div className="rounded-xl border border-border/40 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-[10px]">
+                              <thead>
+                                <tr className="border-b border-border/40 bg-secondary/20">
+                                  {cols.map((c) => (
+                                    <th
+                                      key={c.name}
+                                      className="px-3 py-2 text-left font-bold text-muted-foreground whitespace-nowrap"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        <FieldIcon type={c.type} />
+                                        {c.name}
+                                      </div>
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map((row, ri) => (
+                                  <tr
+                                    key={ri}
+                                    className="border-b border-border/20 last:border-0 hover:bg-secondary/10"
+                                  >
+                                    {cols.map((c) => (
+                                      <td
+                                        key={c.name}
+                                        className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap max-w-[120px] truncate"
+                                      >
+                                        {String(row[c.name] ?? "")}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Fields configuration */}
+                  {fieldMappings.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                        Fields — rename, change type, or hide
+                      </p>
+                      <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/30">
+                        {fieldMappings.map((fm, idx) => (
+                          <div
+                            key={fm.originalName}
+                            className={`flex items-center gap-2 px-3 py-2 group transition-colors ${fm.hidden ? "opacity-40 bg-secondary/5" : "hover:bg-secondary/10"}`}
+                          >
+                            {/* Field type icon + toggle */}
+                            <button
+                              title="Toggle dimension / measure"
+                              onClick={() =>
+                                setFieldMappings((prev) =>
+                                  prev.map((f, i) =>
+                                    i === idx
+                                      ? { ...f, fieldType: f.fieldType === "measure" ? "dimension" : "measure" }
+                                      : f
+                                  )
+                                )
+                              }
+                              className="shrink-0 hover:opacity-70 transition-opacity"
+                            >
+                              <FieldIcon
+                                type={fm.fieldType === "measure" ? "number" : "text"}
+                              />
+                            </button>
+
+                            {/* Field name (editable) */}
+                            {editingFieldIdx === idx ? (
+                              <Input
+                                autoFocus
+                                value={editingFieldName}
+                                onChange={(e) => setEditingFieldName(e.target.value)}
+                                onBlur={() => {
+                                  setFieldMappings((prev) =>
+                                    prev.map((f, i) =>
+                                      i === idx
+                                        ? { ...f, displayName: editingFieldName.trim() || f.originalName }
+                                        : f
+                                    )
+                                  );
+                                  setEditingFieldIdx(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === "Escape")
+                                    (e.target as HTMLInputElement).blur();
+                                }}
+                                className="h-6 text-xs px-1.5 flex-1"
+                              />
+                            ) : (
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs font-mono truncate block">
+                                  {fm.displayName}
+                                </span>
+                                {fm.displayName !== fm.originalName && (
+                                  <span className="text-[9px] text-muted-foreground/50 truncate block">
+                                    {fm.originalName}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Type badge */}
+                            <Badge
+                              variant="outline"
+                              className={`text-[8px] shrink-0 ${fm.fieldType === "measure" ? "border-blue-500/30 text-blue-400" : "border-green-500/30 text-green-400"}`}
+                            >
+                              {fm.fieldType}
+                            </Badge>
+
+                            {/* Actions */}
+                            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-5"
+                                title="Rename"
+                                onClick={() => {
+                                  setEditingFieldIdx(idx);
+                                  setEditingFieldName(fm.displayName);
+                                }}
+                              >
+                                <Pencil className="size-2.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-5"
+                                title={fm.hidden ? "Show field" : "Hide field"}
+                                onClick={() =>
+                                  setFieldMappings((prev) =>
+                                    prev.map((f, i) =>
+                                      i === idx ? { ...f, hidden: !f.hidden } : f
+                                    )
+                                  )
+                                }
+                              >
+                                {fm.hidden ? (
+                                  <Eye className="size-2.5" />
+                                ) : (
+                                  <EyeOff className="size-2.5" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Calculated fields */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        Calculated Fields
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2 gap-1 border-dashed"
+                        onClick={() => setShowCalcForm((v) => !v)}
+                      >
+                        <Calculator className="size-3" />
+                        {showCalcForm ? "Cancel" : "Add Field"}
+                      </Button>
+                    </div>
+
+                    {/* Add calculated field form */}
+                    {showCalcForm && (
+                      <div className="rounded-xl border border-accent/30 bg-accent/5 p-3 space-y-2.5 mb-3">
+                        <p className="text-[10px] text-muted-foreground">
+                          Write a simple expression using column names. Example:{" "}
+                          <code className="font-mono text-accent">revenue * 0.2</code> or{" "}
+                          <code className="font-mono text-accent">price * quantity</code>
+                        </p>
+                        <Input
+                          placeholder="Field name (e.g. total_value)"
+                          value={calcFormName}
+                          onChange={(e) => setCalcFormName(e.target.value)}
+                          className="h-7 text-xs font-mono"
+                        />
+                        <Input
+                          placeholder="Expression (e.g. revenue * quantity)"
+                          value={calcFormExpr}
+                          onChange={(e) => setCalcFormExpr(e.target.value)}
+                          className="h-7 text-xs font-mono"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={calcFormType}
+                            onValueChange={(v) =>
+                              setCalcFormType(v as "dimension" | "measure")
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-xs flex-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="measure" className="text-xs">
+                                Measure (numeric)
+                              </SelectItem>
+                              <SelectItem value="dimension" className="text-xs">
+                                Dimension (text/category)
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={!calcFormName.trim() || !calcFormExpr.trim()}
+                            onClick={() => {
+                              if (!calcFormName.trim() || !calcFormExpr.trim()) return;
+                              setCalculatedFields((prev) => [
+                                ...prev,
+                                {
+                                  id: `cf${Date.now()}`,
+                                  name: calcFormName.trim(),
+                                  expression: calcFormExpr.trim(),
+                                  fieldType: calcFormType,
+                                },
+                              ]);
+                              setCalcFormName("");
+                              setCalcFormExpr("");
+                              setCalcFormType("measure");
+                              setShowCalcForm(false);
+                            }}
+                          >
+                            <Check className="size-3 mr-1" /> Add
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Calculated fields list */}
+                    {calculatedFields.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground border-2 border-dashed border-border/30 rounded-xl">
+                        <Calculator className="size-5 mb-1.5 opacity-20" />
+                        <p className="text-[10px]">No calculated fields yet</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/30">
+                        {calculatedFields.map((cf) => (
+                          <div
+                            key={cf.id}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/10"
+                          >
+                            <Calculator className="size-3 text-accent shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-mono font-bold truncate">
+                                {cf.name}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground font-mono truncate">
+                                = {cf.expression}
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[8px] shrink-0 ${cf.fieldType === "measure" ? "border-blue-500/30 text-blue-400" : "border-green-500/30 text-green-400"}`}
+                            >
+                              {cf.fieldType}
+                            </Badge>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-5 hover:text-destructive shrink-0"
+                              onClick={() =>
+                                setCalculatedFields((prev) =>
+                                  prev.filter((f) => f.id !== cf.id)
+                                )
+                              }
+                            >
+                              <X className="size-2.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 3: Configure chart ── */}
+              {step === 3 && (
                 <div className="space-y-3">
                   {/* Mode toggle */}
                   <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-xl w-fit">
@@ -2788,7 +3261,7 @@ export default function VisualizePage() {
                   </div>
 
                   {/* Source badge */}
-                  <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
+                  <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2 flex-wrap">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
                       Source
                     </p>
@@ -2799,19 +3272,20 @@ export default function VisualizePage() {
                           : `${connections.find((c) => c.id === selectedConn)?.name} → ${selectedTable}`
                         : folderFiles.find((f) => f.id === selectedFile)?.name}
                     </p>
+                    {(fieldMappings.some((f) => f.hidden || f.displayName !== f.originalName) || calculatedFields.length > 0) && (
+                      <Badge variant="outline" className="text-[9px] text-accent border-accent/30 shrink-0">
+                        {fieldMappings.filter((f) => !f.hidden).length + calculatedFields.length} active fields
+                      </Badge>
+                    )}
                   </div>
 
                   {buildMode === "manual" && (
                     <ManualChartBuilder
-                      columns={
-                        sourceType === "database"
-                          ? tableSchema.columns
-                          : fileSchema?.columns || []
-                      }
+                      columns={getEffectiveColumns()}
                       rows={
                         sourceType === "database"
                           ? tableSchema.sampleRows
-                          : fileSchema?.rows || []
+                          : getEffectiveRows(fileSchema?.rows || [])
                       }
                       sourceType={sourceType}
                       connectionId={selectedConn || undefined}
@@ -2845,7 +3319,13 @@ export default function VisualizePage() {
                         className="resize-none text-sm"
                         rows={4}
                       />
-                      <p className="text-[10px] text-muted-foreground mt-1.5">
+                      {calculatedFields.length > 0 && (
+                        <p className="text-[10px] text-accent/80 mt-1.5">
+                          Calculated fields available:{" "}
+                          {calculatedFields.map((cf) => cf.name).join(", ")}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-1">
                         Be specific about columns and aggregation you want.
                       </p>
                     </div>
@@ -2853,8 +3333,8 @@ export default function VisualizePage() {
                 </div>
               )}
 
-              {/* ── Step 3: Preview ── */}
-              {step === 3 && (
+              {/* ── Step 4: Preview ── */}
+              {step === 4 && (
                 <div className="space-y-4">
                   <div>
                     <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
@@ -2906,7 +3386,7 @@ export default function VisualizePage() {
               {step === 0 ? "Cancel" : "← Back"}
             </Button>
             <div className="flex gap-2">
-              {step < 2 && (
+              {step < 3 && (
                 <Button
                   size="sm"
                   onClick={() => setStep((s) => s + 1)}
@@ -2915,16 +3395,16 @@ export default function VisualizePage() {
                   Next <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
-              {step === 2 && buildMode === "manual" && (
+              {step === 3 && buildMode === "manual" && (
                 <Button
                   size="sm"
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(4)}
                   disabled={!preview}
                 >
                   Use This Chart <ChevronRight className="size-4 ml-1" />
                 </Button>
               )}
-              {step === 2 && buildMode === "ai" && (
+              {step === 3 && buildMode === "ai" && (
                 <Button
                   size="sm"
                   onClick={runGenerate}
@@ -2941,7 +3421,7 @@ export default function VisualizePage() {
                   )}
                 </Button>
               )}
-              {step === 3 && (
+              {step === 4 && (
                 <Button
                   size="sm"
                   onClick={saveWidget}
