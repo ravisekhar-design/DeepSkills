@@ -259,6 +259,7 @@ export default function VisualizePage() {
   // ── Edit mode (wizard reused for editing) ────────────────────────────────
   const [isEditMode, setIsEditMode] = useState(false);
   const [editTargetWidget, setEditTargetWidget] = useState<DashboardWidget | null>(null);
+  const [wizardInitialConfig, setWizardInitialConfig] = useState<GeneratedChartConfig | null>(null);
 
   // ── Global filters (enhanced) ─────────────────────────────────────────────
   const [globalFilters, setGlobalFilters] = useState<GlobalFilter[]>([]);
@@ -423,6 +424,7 @@ export default function VisualizePage() {
     setPreFilters([]);
     setIsEditMode(false);
     setEditTargetWidget(null);
+    setWizardInitialConfig(null);
   };
 
   // ── Open wizard (add new chart) ───────────────────────────────────────────
@@ -458,6 +460,7 @@ export default function VisualizePage() {
     setEditTargetWidget(widget);
     setPreviewTitle(widget.title);
     setPreview(widget.chartConfig);
+    setWizardInitialConfig(widget.chartConfig);
     setBuildMode(widget.prompt ? "ai" : "manual");
     setPrompt(widget.prompt || "");
 
@@ -3333,6 +3336,7 @@ export default function VisualizePage() {
                         setPreview(config);
                         setPreviewTitle(title);
                       }}
+                      initialConfig={wizardInitialConfig ?? undefined}
                     />
                   )}
 

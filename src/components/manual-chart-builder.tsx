@@ -33,6 +33,7 @@ export interface ManualChartBuilderProps {
   tableName?: string;
   dbType?: string;
   onGenerate: (config: GeneratedChartConfig, title: string) => void;
+  initialConfig?: GeneratedChartConfig; // pre-populate when editing an existing chart
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -349,6 +350,29 @@ const newId = () => `m${++_id}`;
 let _filterId = 0;
 const newFilterId = () => `f${++_filterId}`;
 
+// Reconstruct MeasureConfig from a saved series entry (dataKey = field__agg or plain field)
+function parseMeasureFromSeries(s: ChartSeries, idx: number): MeasureConfig {
+  const dk = s.dataKey;
+  const match = dk.match(/^(.+)__(sum|avg|count|count_distinct|min|max|none)$/);
+  if (match) {
+    return {
+      id: newId(),
+      field: match[1],
+      agg: match[2] as AggFunc,
+      seriesType: (s.seriesType as SeriesType) || 'bar',
+      color: s.color || CHART_COLORS[idx % CHART_COLORS.length],
+    };
+  }
+  // dataKey is a plain column name (no-agg or group-pivot value)
+  return {
+    id: newId(),
+    field: dk,
+    agg: 'none',
+    seriesType: (s.seriesType as SeriesType) || 'bar',
+    color: s.color || CHART_COLORS[idx % CHART_COLORS.length],
+  };
+}
+
 // ── FieldChip — draggable column pill ─────────────────────────────────────────
 
 function FieldChip({ col, isNumeric }: { col: Column; isNumeric: boolean }) {
@@ -408,20 +432,33 @@ export function ManualChartBuilder({
   tableName,
   dbType,
   onGenerate,
+  initialConfig,
 }: ManualChartBuilderProps) {
   const dimensions  = useMemo(() => columns.filter(c => !isNumericType(c.type)), [columns]);
   const numericCols = useMemo(() => columns.filter(c =>  isNumericType(c.type)), [columns]);
 
-  const [chartType,    setChartType]    = useState<ChartType>('bar');
-  const [xField,       setXField]       = useState('');
-  const [targetField,  setTargetField]  = useState('');   // sankey target column
-  const [measures,     setMeasures]     = useState<MeasureConfig[]>([
-    { id: newId(), field: '', agg: 'sum', seriesType: 'bar', color: CHART_COLORS[0] },
-  ]);
+  // Derive initial measures from saved series (only used during mount)
+  const initMeasures = useMemo((): MeasureConfig[] => {
+    if (!initialConfig?.series?.length) {
+      return [{ id: newId(), field: '', agg: 'sum', seriesType: 'bar', color: CHART_COLORS[0] }];
+    }
+    const parsed = initialConfig.series.map((s, i) => parseMeasureFromSeries(s, i));
+    // Deduplicate: if all parsed fields are the same (group-pivot case), keep only first
+    const uniqueFields = new Set(parsed.map(m => m.field));
+    if (uniqueFields.size === 1 && parsed.length > 1) {
+      return [parsed[0]]; // was a group-pivot chart — restore single measure
+    }
+    return parsed;
+  }, []); // eslint-disable-line — run once on mount only
+
+  const [chartType,    setChartType]    = useState<ChartType>(() => (initialConfig?.chartType as ChartType) || 'bar');
+  const [xField,       setXField]       = useState(() => initialConfig?.xKey || '');
+  const [targetField,  setTargetField]  = useState('');
+  const [measures,     setMeasures]     = useState<MeasureConfig[]>(initMeasures);
   const [groupBy,      setGroupBy]      = useState('');
-  const [sortOrder,    setSortOrder]    = useState<SortOrder>('default');
-  const [showLabels,   setShowLabels]   = useState(false);
-  const [filters,      setFilters]      = useState<ChartFilter[]>([]);
+  const [sortOrder,    setSortOrder]    = useState<SortOrder>(() => (initialConfig?.sortOrder as SortOrder) || 'default');
+  const [showLabels,   setShowLabels]   = useState(() => initialConfig?.showLabels ?? false);
+  const [filters,      setFilters]      = useState<ChartFilter[]>(() => initialConfig?.filters ?? []);
   const [dragOverZone, setDragOverZone] = useState<string | null>(null);
   const [preview,      setPreview]      = useState<GeneratedChartConfig | null>(null);
   const [running,      setRunning]      = useState(false);
@@ -429,12 +466,12 @@ export function ManualChartBuilder({
 
   const uiCfg = useMemo(() => getChartUIConfig(chartType), [chartType]);
 
-  // Auto-seed defaults once columns arrive
+  // Auto-seed defaults once columns arrive (only fills empty values — won't override initialConfig)
   useEffect(() => {
     if (columns.length === 0) return;
     setXField(prev => prev || dimensions[0]?.name || columns[0]?.name || '');
     setMeasures(prev => {
-      if (prev[0].field !== '') return prev;
+      if (prev[0]?.field !== '') return prev;
       return [{ ...prev[0], field: numericCols[0]?.name || columns[0]?.name || '' }];
     });
   }, [columns]); // eslint-disable-line
@@ -686,8 +723,8 @@ export function ManualChartBuilder({
                   size="sm" variant="ghost"
                   className="h-5 px-1.5 text-[10px] gap-0.5"
                   onClick={addMeasure}
-                  disabled={!!groupBy && !uiCfg.showGroupBy}
-                  title={groupBy && uiCfg.showGroupBy ? 'Remove Group By to add multiple measures' : undefined}
+                  disabled={!uiCfg.showGroupBy && !!groupBy}
+                  title={groupBy && measures.length >= 1 ? 'Multiple Y-axis fields with Group By: first field is used for pivoting' : undefined}
                 >
                   <Plus className="size-3" /> Add
                 </Button>
@@ -790,7 +827,7 @@ export function ManualChartBuilder({
                 isOver={dragOverZone === 'group'}
                 {...makeZoneHandlers('group', col => {
                   setGroupBy(col.name);
-                  setMeasures(prev => prev.slice(0, 1));
+                  // do NOT remove measures — user keeps all Y-axis fields
                 })}
                 className="p-2 min-h-[36px]"
               >
@@ -810,7 +847,7 @@ export function ManualChartBuilder({
                       onValueChange={v => {
                         const val = v === '__none__' ? '' : v;
                         setGroupBy(val);
-                        if (val) setMeasures(prev => prev.slice(0, 1));
+                        // do NOT remove measures — user keeps all Y-axis fields
                       }}
                     >
                       <SelectTrigger className="h-6 text-xs flex-1">
@@ -824,6 +861,11 @@ export function ManualChartBuilder({
                   </div>
                 )}
               </DropZone>
+              {groupBy && measures.length > 1 && (
+                <p className="text-[9px] text-amber-500/70 mt-1">
+                  Group By pivots on the first Y-axis field. Remove Group By to use all fields independently.
+                </p>
+              )}
             </div>
           )}
 
