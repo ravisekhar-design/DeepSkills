@@ -391,8 +391,9 @@ export default function AgentsPage() {
               <div className="px-6 pb-6 pt-4 h-[60vh] overflow-hidden flex flex-col">
 
                 {/* ── Persona & Goals ───────────────────────────────────── */}
-                <TabsContent value="identity" className="space-y-6 mt-0 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
-                  <div className="grid gap-3 p-4 rounded-xl bg-accent/5 border border-accent/10">
+                <TabsContent value="identity" className="flex flex-col gap-4 mt-0 flex-1 min-h-0">
+                  {/* Cognitive Seed — fixed height, never grows */}
+                  <div className="shrink-0 grid gap-3 p-4 rounded-xl bg-accent/5 border border-accent/10">
                     <Label className="text-accent font-bold tracking-widest uppercase text-[10px]">Cognitive Seed</Label>
                     <div className="flex gap-2">
                       <Input
@@ -408,30 +409,35 @@ export default function AgentsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-6 pt-2">
-                    <div className="grid gap-2">
-                      <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Agent Identity</Label>
-                      <Input
-                        placeholder="Agent Name"
-                        className="bg-secondary/30 h-11"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                      />
+                  {/* Two-column fields — stretches to fill remaining height */}
+                  <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 grid-rows-1">
+                    {/* Left: name (fixed) + persona (grows) */}
+                    <div className="flex flex-col gap-4 min-h-0">
+                      <div className="shrink-0 grid gap-2">
+                        <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Agent Identity</Label>
+                        <Input
+                          placeholder="Agent Name"
+                          className="bg-secondary/30 h-11"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2 flex-1 min-h-0">
+                        <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Neural Persona</Label>
+                        <Textarea
+                          placeholder="Detailed background profile..."
+                          className="resize-none flex-1 min-h-0 bg-secondary/30 leading-relaxed"
+                          value={persona}
+                          onChange={(e) => setPersona(e.target.value)}
+                        />
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Neural Persona</Label>
-                      <Textarea
-                        placeholder="Detailed background profile..."
-                        className="min-h-[140px] bg-secondary/30 leading-relaxed"
-                        value={persona}
-                        onChange={(e) => setPersona(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-2">
+                    {/* Right: objectives fills full column height */}
+                    <div className="flex flex-col gap-2 min-h-0">
                       <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Strategic Objectives</Label>
                       <Textarea
-                        placeholder="Mission critical goals..."
-                        className="bg-secondary/30"
+                        placeholder="Mission critical goals (one per line)..."
+                        className="resize-none flex-1 min-h-0 bg-secondary/30 leading-relaxed"
                         value={objectives}
                         onChange={(e) => setObjectives(e.target.value)}
                       />
@@ -440,9 +446,10 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Cognitive Settings ────────────────────────────────── */}
-                <TabsContent value="parameters" className="space-y-8 mt-0 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
-                  <div className="p-6 rounded-2xl bg-secondary/10 border border-border space-y-10">
-                    <div className="space-y-5">
+                <TabsContent value="parameters" className="flex flex-col mt-0 flex-1 min-h-0">
+                  {/* Card fills all available height; sliders are vertically centered */}
+                  <div className="flex-1 px-8 py-10 rounded-2xl bg-secondary/10 border border-border flex flex-col justify-center gap-10">
+                    <div className="flex flex-col gap-5">
                       <div className="flex justify-between items-center">
                         <Label className="text-sm font-bold">Creativity Bias (Temperature)</Label>
                         <Badge variant="secondary" className="font-mono text-accent">{parameters.creativity}</Badge>
@@ -453,7 +460,7 @@ export default function AgentsPage() {
                         onValueChange={([v]) => setParameters(p => ({ ...p, creativity: v, temperature: v }))}
                       />
                     </div>
-                    <div className="space-y-5">
+                    <div className="flex flex-col gap-5">
                       <div className="flex justify-between items-center">
                         <Label className="text-sm font-bold">Inference Horizon (Max Tokens)</Label>
                         <Badge variant="secondary" className="font-mono text-accent">{parameters.maxLength.toLocaleString()}</Badge>
@@ -468,8 +475,8 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Skill Pipeline ────────────────────────────────────── */}
-                <TabsContent value="skills" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
-                  <div className="flex flex-col gap-3 overflow-hidden">
+                <TabsContent value="skills" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
@@ -494,7 +501,7 @@ export default function AgentsPage() {
                       </div>
                     </ScrollArea>
                   </div>
-                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Pipeline</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
@@ -528,9 +535,9 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Data Sources (Databases) ──────────────────────────── */}
-                <TabsContent value="datasources" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
+                <TabsContent value="datasources" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Databases */}
-                  <div className="flex flex-col gap-3 overflow-hidden">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
@@ -568,7 +575,7 @@ export default function AgentsPage() {
                   </div>
 
                   {/* RIGHT: Connected Sources */}
-                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Connected Sources</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
@@ -601,9 +608,9 @@ export default function AgentsPage() {
                 </TabsContent>
 
                 {/* ── Files & Folders ───────────────────────────────────── */}
-                <TabsContent value="files" className="grid grid-cols-1 sm:grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
+                <TabsContent value="files" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
                   {/* LEFT: Available Folders */}
-                  <div className="flex flex-col gap-3 overflow-hidden">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-4">
                       <div className="space-y-2">
@@ -696,7 +703,7 @@ export default function AgentsPage() {
                   </div>
 
                   {/* RIGHT: Active Context */}
-                  <div className="flex flex-col gap-3 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
+                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
                     <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Context</Label>
                     <ScrollArea className="flex-1 overflow-hidden pr-2">
                       <div className="space-y-2">
