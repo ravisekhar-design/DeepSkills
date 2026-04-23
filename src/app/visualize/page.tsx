@@ -9,13 +9,13 @@ import {
   Settings2, Hash, Type, Link2,
   PanelRightClose, PanelRightOpen, Layers, ArrowRight,
   Eye, EyeOff, ChevronDown, ChevronUp,
-  Calculator, Copy,
+  Calculator, Copy, Search, SlidersHorizontal, ListFilter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,6 +84,26 @@ interface CalculatedField {
   name: string;
   expression: string;
   fieldType: "dimension" | "measure";
+}
+
+// Enhanced global filter (replaces raw ChartFilter for the filter panel)
+interface GlobalFilter {
+  id: string;
+  column: string;
+  filterType: "operator" | "range" | "multi-select";
+  operator: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "not_contains" | "is_empty" | "is_not_empty";
+  value: string;
+  rangeMin: string;
+  rangeMax: string;
+  selectedValues: string[];
+}
+
+// Pre-visualization row filter (applied before chart generation in Prepare step)
+interface PreFilter {
+  id: string;
+  column: string;
+  operator: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "is_empty" | "is_not_empty";
+  value: string;
 }
 
 // ── Wizard steps ──────────────────────────────────────────────────────────────
@@ -236,23 +256,13 @@ export default function VisualizePage() {
   const [renameWidgetValue, setRenameWidgetValue] = useState("");
   const [expandedWidget, setExpandedWidget] = useState<DashboardWidget | null>(null);
 
-  // ── Edit chart dialog ─────────────────────────────────────────────────────
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
-  const [editBuildMode, setEditBuildMode] = useState<"ai" | "manual">("manual");
-  const [editTitle, setEditTitle] = useState("");
-  const [editPrompt, setEditPrompt] = useState("");
-  const [editPreview, setEditPreview] = useState<GeneratedChartConfig | null>(null);
-  const [editSchema, setEditSchema] = useState<{
-    columns: SchemaColumn[];
-    rows: any[];
-  }>({ columns: [], rows: [] });
-  const [editSchemaLoading, setEditSchemaLoading] = useState(false);
-  const [editGenerating, setEditGenerating] = useState(false);
-  const [editSaving, setEditSaving] = useState(false);
+  // ── Edit mode (wizard reused for editing) ────────────────────────────────
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editTargetWidget, setEditTargetWidget] = useState<DashboardWidget | null>(null);
 
-  // ── Global filters ────────────────────────────────────────────────────────
-  const [globalFilters, setGlobalFilters] = useState<ChartFilter[]>([]);
+  // ── Global filters (enhanced) ─────────────────────────────────────────────
+  const [globalFilters, setGlobalFilters] = useState<GlobalFilter[]>([]);
+  const [filterSearch, setFilterSearch] = useState("");
 
   // ── Right panel (new BI panel) ────────────────────────────────────────────
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -286,6 +296,9 @@ export default function VisualizePage() {
   const [calcFormName, setCalcFormName] = useState("");
   const [calcFormExpr, setCalcFormExpr] = useState("");
   const [calcFormType, setCalcFormType] = useState<"dimension" | "measure">("measure");
+
+  // ── Pre-visualization filters (applied before chart generation) ───────────
+  const [preFilters, setPreFilters] = useState<PreFilter[]>([]);
 
   // ── Sample data preview in right panel ───────────────────────────────────
   const [dataPanelSchema, setDataPanelSchema] = useState<SchemaColumn[]>([]);
@@ -381,18 +394,8 @@ export default function VisualizePage() {
     setRenamingId(null);
   };
 
-  // ── Open wizard ───────────────────────────────────────────────────────────
-  const openWizard = async () => {
-    try {
-      const [connRes, folderRes] = await Promise.all([
-        fetch("/api/store?key=nexus_databases"),
-        fetch("/api/files?type=folders"),
-      ]);
-      const connJson = await connRes.json();
-      const folderJson = await folderRes.json();
-      setConnections(connJson.data || []);
-      setFolders(folderJson.data || []);
-    } catch {}
+  // ── Shared wizard reset ───────────────────────────────────────────────────
+  const resetWizardState = () => {
     setStep(0);
     setSourceType("database");
     setSelectedConn("");
@@ -417,6 +420,95 @@ export default function VisualizePage() {
     setCalcFormName("");
     setCalcFormExpr("");
     setCalcFormType("measure");
+    setPreFilters([]);
+    setIsEditMode(false);
+    setEditTargetWidget(null);
+  };
+
+  // ── Open wizard (add new chart) ───────────────────────────────────────────
+  const openWizard = async () => {
+    try {
+      const [connRes, folderRes] = await Promise.all([
+        fetch("/api/store?key=nexus_databases"),
+        fetch("/api/files?type=folders"),
+      ]);
+      const connJson = await connRes.json();
+      const folderJson = await folderRes.json();
+      setConnections(connJson.data || []);
+      setFolders(folderJson.data || []);
+    } catch {}
+    resetWizardState();
+    setWizardOpen(true);
+  };
+
+  // ── Open wizard in edit mode ──────────────────────────────────────────────
+  const openEditWizard = async (widget: DashboardWidget) => {
+    if (connections.length === 0) {
+      try {
+        const [connRes, folderRes] = await Promise.all([
+          fetch("/api/store?key=nexus_databases"),
+          fetch("/api/files?type=folders"),
+        ]);
+        setConnections((await connRes.json()).data || []);
+        setFolders((await folderRes.json()).data || []);
+      } catch {}
+    }
+    resetWizardState();
+    setIsEditMode(true);
+    setEditTargetWidget(widget);
+    setPreviewTitle(widget.title);
+    setPreview(widget.chartConfig);
+    setBuildMode(widget.prompt ? "ai" : "manual");
+    setPrompt(widget.prompt || "");
+
+    if (widget.dataSourceType === "database") {
+      setSourceType("database");
+      setSelectedConn(widget.dataSourceId);
+      // Parse table name from dataSourceName (format: "ConnName / tableName")
+      const tableName = widget.dataSourceName.split(" / ").pop()?.split(" ⋈")[0]?.trim() || "";
+      if (tableName) {
+        setSelectedTable(tableName);
+        // Load tables list
+        try {
+          const res = await fetch(`/api/dashboards/schema?connectionId=${widget.dataSourceId}`);
+          const json = await res.json();
+          setTables(json.data?.tables || []);
+        } catch {}
+        // Load schema
+        try {
+          const res = await fetch(
+            `/api/dashboards/schema?connectionId=${widget.dataSourceId}&table=${encodeURIComponent(tableName)}`
+          );
+          const json = await res.json();
+          const cols: SchemaColumn[] = json.data?.columns || [];
+          setTableSchema({ columns: cols, sampleRows: json.data?.sampleRows || [] });
+          setFieldMappings(cols.map((c) => ({
+            originalName: c.name,
+            displayName: c.name,
+            fieldType: isNumericType(c.type) ? "measure" : "dimension",
+            hidden: false,
+          })));
+        } catch {}
+      }
+    } else {
+      setSourceType("file");
+      setSelectedFile(widget.dataSourceId);
+      try {
+        const res = await fetch(`/api/files?type=content&fileId=${widget.dataSourceId}`);
+        const json = await res.json();
+        if (json.data?.content) {
+          const parsed = parseFile(json.data.content, widget.dataSourceName);
+          setFileSchema(parsed);
+          setFieldMappings(parsed.columns.map((c) => ({
+            originalName: c.name,
+            displayName: c.name,
+            fieldType: isNumericType(c.type) ? "measure" : "dimension",
+            hidden: false,
+          })));
+        }
+      } catch {}
+    }
+    setStep(3); // Jump straight to Configure Chart
     setWizardOpen(true);
   };
 
@@ -617,17 +709,20 @@ export default function VisualizePage() {
     }
   }
 
-  // Apply calculated fields to file rows
+  // Apply calculated fields and pre-filters to rows
   const getEffectiveRows = useCallback(
     (rows: any[]): any[] => {
-      if (calculatedFields.length === 0) return rows;
-      return rows.map((row) => {
-        const nr = { ...row };
-        calculatedFields.forEach((cf) => {
-          nr[cf.name] = evalCalcField(cf.expression, row);
+      let result = rows;
+      if (calculatedFields.length > 0) {
+        result = result.map((row) => {
+          const nr = { ...row };
+          calculatedFields.forEach((cf) => {
+            nr[cf.name] = evalCalcField(cf.expression, row);
+          });
+          return nr;
         });
-        return nr;
-      });
+      }
+      return result;
     },
     [calculatedFields]
   );
@@ -665,7 +760,7 @@ export default function VisualizePage() {
       } else {
         const file = folderFiles.find((f) => f.id === selectedFile);
         const baseRows = fileSchema?.rows || [];
-        const effectiveRows = getEffectiveRows(baseRows);
+        const effectiveRows = applyPreFilters(getEffectiveRows(baseRows));
         result = await generateChart({
           sourceType: "file",
           tableName: file?.name || "data",
@@ -691,7 +786,7 @@ export default function VisualizePage() {
     setGenerating(false);
   };
 
-  // ── Save widget ───────────────────────────────────────────────────────────
+  // ── Save widget (handles both add and edit modes) ─────────────────────────
   const saveWidget = async () => {
     if (!selected || !preview) return;
     setSaving(true);
@@ -702,45 +797,75 @@ export default function VisualizePage() {
         joinEnabled && joinPreviewData
           ? buildJoinSQL(selectedTable, joinTable2Schema, joinConfig)
           : undefined;
-      const res = await fetch(`/api/dashboards/${selected.id}/widgets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: previewTitle,
-          chartType: preview.chartType,
-          chartConfig: { ...preview, title: previewTitle },
-          dataSourceType: sourceType,
-          dataSourceId: sourceType === "database" ? selectedConn : selectedFile,
-          dataSourceName:
-            sourceType === "database"
-              ? joinSQL
-                ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}`
-                : `${conn?.name} / ${selectedTable}`
-              : file?.name,
-          dataQuery: joinSQL ?? preview.sql,
-          prompt: buildMode === "ai" ? prompt : "",
-          gridW: 1,
-        }),
-      });
-      const json = await res.json();
-      if (json.data) {
-        setSelected((prev) =>
-          prev ? { ...prev, widgets: [...prev.widgets, json.data] } : prev
+
+      if (isEditMode && editTargetWidget) {
+        // ── EDIT: PATCH existing widget ──
+        const res = await fetch(
+          `/api/dashboards/${selected.id}/widgets?widgetId=${editTargetWidget.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: previewTitle,
+              chartType: preview.chartType,
+              chartConfig: { ...preview, title: previewTitle },
+              dataQuery: preview.sql ?? editTargetWidget.dataQuery ?? null,
+              prompt: buildMode === "ai" ? prompt : "",
+            }),
+          }
         );
-        setDashboards((prev) =>
-          prev.map((d) =>
-            d.id === selected.id
-              ? { ...d, widgetCount: d.widgetCount + 1 }
-              : d
-          )
-        );
-        toast({ title: "Chart added", description: `"${previewTitle}" added.` });
-        setWizardOpen(false);
+        const json = await res.json();
+        if (json.data) {
+          setSelected((prev) =>
+            prev ? { ...prev, widgets: prev.widgets.map((w) => w.id === editTargetWidget.id ? json.data : w) } : prev
+          );
+          setExpandedWidget((prev) => prev?.id === editTargetWidget.id ? json.data : prev);
+          if (focusedWidget?.id === editTargetWidget.id) setFocusedWidget(json.data);
+          toast({ title: "Chart updated", description: `"${previewTitle}" saved.` });
+          setWizardOpen(false);
+        } else {
+          toast({ title: "Update failed", description: json.error, variant: "destructive" });
+        }
       } else {
-        toast({ title: "Save failed", description: json.error, variant: "destructive" });
+        // ── ADD: POST new widget ──
+        const res = await fetch(`/api/dashboards/${selected.id}/widgets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: previewTitle,
+            chartType: preview.chartType,
+            chartConfig: { ...preview, title: previewTitle },
+            dataSourceType: sourceType,
+            dataSourceId: sourceType === "database" ? selectedConn : selectedFile,
+            dataSourceName:
+              sourceType === "database"
+                ? joinSQL
+                  ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}`
+                  : `${conn?.name} / ${selectedTable}`
+                : file?.name,
+            dataQuery: joinSQL ?? preview.sql,
+            prompt: buildMode === "ai" ? prompt : "",
+            gridW: 1,
+          }),
+        });
+        const json = await res.json();
+        if (json.data) {
+          setSelected((prev) =>
+            prev ? { ...prev, widgets: [...prev.widgets, json.data] } : prev
+          );
+          setDashboards((prev) =>
+            prev.map((d) =>
+              d.id === selected.id ? { ...d, widgetCount: d.widgetCount + 1 } : d
+            )
+          );
+          toast({ title: "Chart added", description: `"${previewTitle}" added.` });
+          setWizardOpen(false);
+        } else {
+          toast({ title: "Save failed", description: json.error, variant: "destructive" });
+        }
       }
     } catch (err: any) {
-      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+      toast({ title: isEditMode ? "Update failed" : "Save failed", description: err.message, variant: "destructive" });
     }
     setSaving(false);
   };
@@ -859,146 +984,6 @@ export default function VisualizePage() {
     } catch {}
   };
 
-  // ── Open edit dialog ──────────────────────────────────────────────────────
-  const openEditDialog = async (widget: DashboardWidget) => {
-    setEditingWidget(null);
-    setEditPreview(null);
-    setEditSchema({ columns: [], rows: [] });
-    setEditTitle("");
-    setEditPrompt("");
-    setEditBuildMode("manual");
-    setEditSchemaLoading(true);
-    setEditDialogOpen(true);
-    setEditingWidget(widget);
-    setEditTitle(widget.title);
-    setEditPrompt(widget.prompt || "");
-    setEditPreview(widget.chartConfig);
-    if (connections.length === 0) {
-      try {
-        const res = await fetch("/api/store?key=nexus_databases");
-        const json = await res.json();
-        setConnections(json.data || []);
-      } catch {}
-    }
-    try {
-      if (widget.dataSourceType === "database") {
-        const tableName =
-          widget.dataSourceName.split(" / ").pop()?.split(" ⋈")[0]?.trim() || "";
-        if (tableName) {
-          const res = await fetch(
-            `/api/dashboards/schema?connectionId=${widget.dataSourceId}&table=${encodeURIComponent(tableName)}`
-          );
-          const json = await res.json();
-          setEditSchema({
-            columns: json.data?.columns || [],
-            rows: json.data?.sampleRows || [],
-          });
-        }
-      } else {
-        const res = await fetch(
-          `/api/files?type=content&fileId=${widget.dataSourceId}`
-        );
-        const json = await res.json();
-        if (json.data?.content) {
-          const parsed = parseFile(json.data.content, widget.dataSourceName);
-          setEditSchema({ columns: parsed.columns, rows: parsed.rows });
-        }
-      }
-    } catch {}
-    setEditSchemaLoading(false);
-  };
-
-  // ── AI re-generate in edit dialog ─────────────────────────────────────────
-  const runEditGenerate = async () => {
-    if (!editingWidget) return;
-    setEditGenerating(true);
-    try {
-      const tableName =
-        editingWidget.dataSourceName.split(" / ").pop()?.split(" ⋈")[0]?.trim() || "";
-      const conn = connections.find((c) => c.id === editingWidget.dataSourceId);
-      const result = await generateChart(
-        editingWidget.dataSourceType === "database"
-          ? {
-              sourceType: "database",
-              tableName,
-              columns: editSchema.columns,
-              sampleRows: editSchema.rows,
-              prompt: editPrompt,
-              dbType: conn?.type,
-              connectionId: editingWidget.dataSourceId,
-              userId: user?.uid,
-              preferredModel: visualizeModel,
-            }
-          : {
-              sourceType: "file",
-              tableName: editingWidget.dataSourceName,
-              columns: editSchema.columns,
-              sampleRows: editSchema.rows.slice(0, 5),
-              allRows: editSchema.rows,
-              prompt: editPrompt,
-              preferredModel: visualizeModel,
-            }
-      );
-      setEditPreview(result);
-      setEditTitle(result.title);
-    } catch (err: any) {
-      const msg: string = err.message || "";
-      const friendly =
-        msg.includes("429") || msg.toLowerCase().includes("quota")
-          ? "AI quota exceeded. Try again later or switch model in Settings."
-          : msg.includes("401") || msg.toLowerCase().includes("api key")
-          ? "Invalid or missing API key."
-          : msg;
-      toast({ title: "Re-generation failed", description: friendly, variant: "destructive" });
-    }
-    setEditGenerating(false);
-  };
-
-  // ── Save edited widget ────────────────────────────────────────────────────
-  const saveEditWidget = async () => {
-    if (!editingWidget || !editPreview || !selected) return;
-    setEditSaving(true);
-    try {
-      const res = await fetch(
-        `/api/dashboards/${selected.id}/widgets?widgetId=${editingWidget.id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: editTitle,
-            chartType: editPreview.chartType,
-            chartConfig: { ...editPreview, title: editTitle },
-            dataQuery: editPreview.sql ?? null,
-            prompt: editBuildMode === "ai" ? editPrompt : "",
-          }),
-        }
-      );
-      const json = await res.json();
-      if (json.data) {
-        setSelected((prev) =>
-          prev
-            ? {
-                ...prev,
-                widgets: prev.widgets.map((w) =>
-                  w.id === editingWidget.id ? json.data : w
-                ),
-              }
-            : prev
-        );
-        setExpandedWidget((prev) =>
-          prev?.id === editingWidget.id ? json.data : prev
-        );
-        if (focusedWidget?.id === editingWidget.id) setFocusedWidget(json.data);
-        toast({ title: "Chart updated", description: `"${editTitle}" saved.` });
-        setEditDialogOpen(false);
-      } else {
-        toast({ title: "Update failed", description: json.error, variant: "destructive" });
-      }
-    } catch (err: any) {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
-    }
-    setEditSaving(false);
-  };
 
   // ── Toggle widget width ───────────────────────────────────────────────────
   const toggleWidgetWidth = async (widget: DashboardWidget) => {
@@ -1029,11 +1014,22 @@ export default function VisualizePage() {
   // ── Apply global filters at render time ───────────────────────────────────
   function applyGlobalFilters(config: GeneratedChartConfig): GeneratedChartConfig {
     if (!globalFilters.length) return config;
-    const active = globalFilters.filter((f) => f.column && f.operator);
+    const active = globalFilters.filter((f) => f.column);
     if (!active.length) return config;
     const filtered = config.data.filter((row) =>
       active.every((f) => {
         const val = row[f.column];
+        if (f.filterType === "range") {
+          const num = Number(val);
+          const min = f.rangeMin !== "" ? Number(f.rangeMin) : -Infinity;
+          const max = f.rangeMax !== "" ? Number(f.rangeMax) : Infinity;
+          return num >= min && num <= max;
+        }
+        if (f.filterType === "multi-select") {
+          if (f.selectedValues.length === 0) return true;
+          return f.selectedValues.includes(String(val ?? ""));
+        }
+        // operator mode
         const strVal = String(val ?? "").toLowerCase();
         const fv = (f.value ?? "").toLowerCase();
         switch (f.operator) {
@@ -1052,6 +1048,49 @@ export default function VisualizePage() {
       })
     );
     return { ...config, data: filtered };
+  }
+
+  // ── Unique values for multi-select filters ────────────────────────────────
+  const getUniqueValues = useCallback((column: string): string[] => {
+    if (!selected) return [];
+    const vals = new Set<string>();
+    selected.widgets.forEach((w) => {
+      (w.chartConfig?.data || []).forEach((row) => {
+        if (row[column] != null && String(row[column]) !== "") vals.add(String(row[column]));
+      });
+    });
+    return Array.from(vals).sort().slice(0, 60);
+  }, [selected?.widgets]); // eslint-disable-line
+
+  // ── Null count for a column in sample data ───────────────────────────────
+  function getNullCount(colName: string): number {
+    const rows = sourceType === "database" ? tableSchema.sampleRows : (fileSchema?.rows || []);
+    return rows.filter((r) => r[colName] == null || String(r[colName]).trim() === "").length;
+  }
+
+  // ── Apply pre-filters to rows ─────────────────────────────────────────────
+  function applyPreFilters(rows: any[]): any[] {
+    if (preFilters.length === 0) return rows;
+    return rows.filter((row) =>
+      preFilters.every((f) => {
+        if (!f.column) return true;
+        const val = row[f.column];
+        const strVal = String(val ?? "").toLowerCase();
+        const fv = (f.value ?? "").toLowerCase();
+        switch (f.operator) {
+          case "=": return String(val) === f.value;
+          case "!=": return String(val) !== f.value;
+          case ">": return Number(val) > Number(f.value);
+          case "<": return Number(val) < Number(f.value);
+          case ">=": return Number(val) >= Number(f.value);
+          case "<=": return Number(val) <= Number(f.value);
+          case "contains": return strVal.includes(fv);
+          case "is_empty": return val == null || String(val) === "";
+          case "is_not_empty": return val != null && String(val) !== "";
+          default: return true;
+        }
+      })
+    );
   }
 
   // ── Load data panel schema for focused widget ─────────────────────────────
@@ -1111,7 +1150,12 @@ export default function VisualizePage() {
     return ["number", "integer", "float", "decimal", "numeric", "bigint", "int4", "int8", "float4", "float8", "double precision"].includes(t.toLowerCase());
   }
 
-  const activeFilterCount = globalFilters.filter((f) => f.column).length;
+  const activeFilterCount = globalFilters.filter((f) => {
+    if (!f.column) return false;
+    if (f.filterType === "range") return f.rangeMin !== "" || f.rangeMax !== "";
+    if (f.filterType === "multi-select") return f.selectedValues.length > 0;
+    return !!f.value || f.operator === "is_empty" || f.operator === "is_not_empty";
+  }).length;
 
   // ── Workflow step indicator ───────────────────────────────────────────────
   const workflowStep = selected
@@ -1417,14 +1461,34 @@ export default function VisualizePage() {
             <ScrollArea className="flex-1">
               <div className="p-6">
                 {selected.widgets.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-24 text-muted-foreground border-2 border-dashed border-border rounded-2xl">
-                    <Sparkles className="size-10 mb-4 opacity-20" />
-                    <p className="text-sm font-medium">No charts yet</p>
-                    <p className="text-xs mt-1 mb-4">
-                      Click &quot;Add Chart&quot; to configure your first visualization
-                    </p>
-                    <Button size="sm" onClick={openWizard} className="gap-2">
-                      <Plus className="size-3.5" /> Add Chart
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground border-2 border-dashed border-border rounded-2xl gap-6 px-8">
+                    {/* Step 1 — Connect Data */}
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <div className="size-12 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center mb-1">
+                        <Database className="size-5 text-accent" />
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">Step 1 — Select Your Data</p>
+                      <p className="text-xs max-w-xs">
+                        Connect a database table or upload a CSV/JSON file before creating charts. Your data source feeds all visualizations in this dashboard.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 w-full max-w-xs">
+                      <div className="h-px flex-1 bg-border" />
+                      <ArrowRight className="size-3.5 text-border" />
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                    {/* Step 2 — Create Chart */}
+                    <div className="flex flex-col items-center gap-2 text-center opacity-60">
+                      <div className="size-12 rounded-full bg-secondary/20 border border-border flex items-center justify-center mb-1">
+                        <BarChart2 className="size-5" />
+                      </div>
+                      <p className="text-sm font-semibold">Step 2 — Build Visualizations</p>
+                      <p className="text-xs max-w-xs">
+                        Use the Manual Builder or AI to create charts from your prepared data.
+                      </p>
+                    </div>
+                    <Button onClick={openWizard} className="gap-2 mt-2">
+                      <Database className="size-3.5" /> Connect Data &amp; Add Chart
                     </Button>
                   </div>
                 ) : (
@@ -1530,7 +1594,7 @@ export default function VisualizePage() {
                               variant="ghost"
                               className="size-7"
                               title="Edit chart"
-                              onClick={() => openEditDialog(widget)}
+                              onClick={() => openEditWizard(widget)}
                             >
                               <Pencil className="size-3" />
                             </Button>
@@ -1737,169 +1801,199 @@ export default function VisualizePage() {
             >
               <ScrollArea className="h-full">
                 <div className="p-3 space-y-3">
+                  {/* Header */}
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                       Global Filters
                     </p>
                     {activeFilterCount > 0 && (
-                      <button
-                        onClick={() => setGlobalFilters([])}
-                        className="text-[10px] text-destructive/60 hover:text-destructive transition-colors"
-                      >
+                      <button onClick={() => setGlobalFilters([])}
+                        className="text-[10px] text-destructive/60 hover:text-destructive transition-colors">
                         Clear all
                       </button>
                     )}
                   </div>
-
                   <p className="text-[10px] text-muted-foreground/70">
-                    Applies to all charts in this dashboard.
+                    Applied to all charts in real-time.
                   </p>
+
+                  {/* Column search */}
+                  {allWidgetColumns.length > 0 && (
+                    <div className="relative">
+                      <Search className="size-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+                      <Input
+                        value={filterSearch}
+                        onChange={(e) => setFilterSearch(e.target.value)}
+                        placeholder="Search columns…"
+                        className="h-7 text-xs pl-7"
+                      />
+                    </div>
+                  )}
 
                   {globalFilters.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground border-2 border-dashed border-border/40 rounded-xl">
                       <Filter className="size-6 mb-2 opacity-20" />
                       <p className="text-xs">No filters active</p>
+                      <p className="text-[10px] mt-1 opacity-60">Add a filter below</p>
                     </div>
                   )}
 
                   <div className="space-y-2">
-                    {globalFilters.map((f, idx) => (
-                      <div
-                        key={f.id}
-                        className="rounded-xl border border-border/50 bg-secondary/10 p-3 space-y-2"
-                      >
-                        {/* Column */}
-                        <Select
-                          value={f.column || "__none__"}
-                          onValueChange={(v) =>
-                            setGlobalFilters((prev) =>
-                              prev.map((x, i) =>
-                                i === idx
-                                  ? { ...x, column: v === "__none__" ? "" : v }
-                                  : x
-                              )
-                            )
-                          }
-                        >
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue placeholder="Select column…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem
-                              value="__none__"
-                              className="text-xs text-muted-foreground"
-                            >
-                              Select column…
-                            </SelectItem>
-                            {allWidgetColumns.map((col) => (
-                              <SelectItem
-                                key={col}
-                                value={col}
-                                className="text-xs font-mono"
-                              >
-                                {col}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        <div className="flex gap-2">
-                          {/* Operator */}
-                          <Select
-                            value={f.operator}
-                            onValueChange={(v) =>
-                              setGlobalFilters((prev) =>
-                                prev.map((x, i) =>
-                                  i === idx
-                                    ? {
-                                        ...x,
-                                        operator: v as ChartFilter["operator"],
-                                      }
-                                    : x
-                                )
-                              )
-                            }
-                          >
-                            <SelectTrigger className="h-7 text-xs w-24">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {[
-                                { v: "=", l: "equals" },
-                                { v: "!=", l: "not equals" },
-                                { v: ">", l: "greater than" },
-                                { v: "<", l: "less than" },
-                                { v: ">=", l: ">= " },
-                                { v: "<=", l: "<=" },
-                                { v: "contains", l: "contains" },
-                                { v: "not_contains", l: "not contains" },
-                                { v: "is_empty", l: "is empty" },
-                                { v: "is_not_empty", l: "not empty" },
-                              ].map((op) => (
-                                <SelectItem
-                                  key={op.v}
-                                  value={op.v}
-                                  className="text-xs"
-                                >
-                                  {op.l}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          {/* Remove */}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7 ml-auto hover:text-destructive shrink-0"
-                            onClick={() =>
-                              setGlobalFilters((prev) =>
-                                prev.filter((_, i) => i !== idx)
-                              )
-                            }
-                          >
-                            <X className="size-3" />
-                          </Button>
-                        </div>
-
-                        {/* Value */}
-                        {f.operator !== "is_empty" &&
-                          f.operator !== "is_not_empty" && (
-                            <Input
-                              value={f.value}
-                              onChange={(e) =>
+                    {globalFilters.map((f, idx) => {
+                      const uniqueVals = f.column ? getUniqueValues(f.column) : [];
+                      return (
+                        <div key={f.id} className="rounded-xl border border-border/50 bg-secondary/10 p-3 space-y-2">
+                          {/* Column + remove row */}
+                          <div className="flex gap-1.5 items-center">
+                            <Select
+                              value={f.column || "__none__"}
+                              onValueChange={(v) => {
+                                const col = v === "__none__" ? "" : v;
+                                const vals = col ? getUniqueValues(col) : [];
+                                const autoType: GlobalFilter["filterType"] =
+                                  vals.length > 0 && vals.length <= 30 ? "multi-select" : "operator";
                                 setGlobalFilters((prev) =>
                                   prev.map((x, i) =>
-                                    i === idx
-                                      ? { ...x, value: e.target.value }
-                                      : x
+                                    i === idx ? { ...x, column: col, filterType: autoType, selectedValues: [], value: "", rangeMin: "", rangeMax: "" } : x
                                   )
-                                )
-                              }
-                              className="h-7 text-xs"
-                              placeholder="Value…"
-                            />
+                                );
+                              }}
+                            >
+                              <SelectTrigger className="h-7 text-xs flex-1">
+                                <SelectValue placeholder="Column…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__" className="text-xs text-muted-foreground">Column…</SelectItem>
+                                {(filterSearch
+                                  ? allWidgetColumns.filter(c => c.toLowerCase().includes(filterSearch.toLowerCase()))
+                                  : allWidgetColumns
+                                ).map((col) => (
+                                  <SelectItem key={col} value={col} className="text-xs font-mono">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button size="icon" variant="ghost" className="size-7 shrink-0 hover:text-destructive"
+                              onClick={() => setGlobalFilters(prev => prev.filter((_, i) => i !== idx))}>
+                              <X className="size-3" />
+                            </Button>
+                          </div>
+
+                          {f.column && (
+                            <>
+                              {/* Filter type selector */}
+                              <div className="flex gap-1 p-0.5 bg-black/20 rounded-lg">
+                                {(["operator", "range", "multi-select"] as const).map((t) => (
+                                  <button key={t}
+                                    onClick={() => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, filterType: t } : x))}
+                                    className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[9px] font-medium transition-colors ${
+                                      f.filterType === t ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    {t === "operator" && <><SlidersHorizontal className="size-2.5" /> Operator</>}
+                                    {t === "range" && <><Hash className="size-2.5" /> Range</>}
+                                    {t === "multi-select" && <><ListFilter className="size-2.5" /> Select</>}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Operator UI */}
+                              {f.filterType === "operator" && (
+                                <div className="space-y-1.5">
+                                  <Select
+                                    value={f.operator}
+                                    onValueChange={(v) => setGlobalFilters(prev => prev.map((x, i) =>
+                                      i === idx ? { ...x, operator: v as GlobalFilter["operator"] } : x))}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {[
+                                        { v: "=", l: "equals" }, { v: "!=", l: "not equals" },
+                                        { v: ">", l: "greater than" }, { v: "<", l: "less than" },
+                                        { v: ">=", l: ">=" }, { v: "<=", l: "<=" },
+                                        { v: "contains", l: "contains" }, { v: "not_contains", l: "not contains" },
+                                        { v: "is_empty", l: "is empty" }, { v: "is_not_empty", l: "not empty" },
+                                      ].map(op => <SelectItem key={op.v} value={op.v} className="text-xs">{op.l}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                  {f.operator !== "is_empty" && f.operator !== "is_not_empty" && (
+                                    <Input value={f.value}
+                                      onChange={(e) => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, value: e.target.value } : x))}
+                                      className="h-7 text-xs" placeholder="Value…" />
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Range UI */}
+                              {f.filterType === "range" && (
+                                <div className="flex gap-1.5 items-center">
+                                  <Input value={f.rangeMin}
+                                    onChange={(e) => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, rangeMin: e.target.value } : x))}
+                                    className="h-7 text-xs" placeholder="Min" type="number" />
+                                  <span className="text-[10px] text-muted-foreground shrink-0">—</span>
+                                  <Input value={f.rangeMax}
+                                    onChange={(e) => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, rangeMax: e.target.value } : x))}
+                                    className="h-7 text-xs" placeholder="Max" type="number" />
+                                </div>
+                              )}
+
+                              {/* Multi-select UI */}
+                              {f.filterType === "multi-select" && (
+                                <div className="space-y-1.5">
+                                  {uniqueVals.length === 0 ? (
+                                    <p className="text-[10px] text-muted-foreground/60">No values found in chart data</p>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-center justify-between">
+                                        <p className="text-[9px] text-muted-foreground/60">
+                                          {f.selectedValues.length === 0 ? "All values shown" : `${f.selectedValues.length} selected`}
+                                        </p>
+                                        {f.selectedValues.length > 0 && (
+                                          <button onClick={() => setGlobalFilters(prev => prev.map((x, i) => i === idx ? { ...x, selectedValues: [] } : x))}
+                                            className="text-[9px] text-accent hover:underline">Clear</button>
+                                        )}
+                                      </div>
+                                      <div className="max-h-36 overflow-y-auto space-y-0.5 rounded-lg border border-border/40 bg-black/10 p-1">
+                                        {uniqueVals.map((val) => {
+                                          const selected = f.selectedValues.includes(val);
+                                          return (
+                                            <button key={val}
+                                              onClick={() => setGlobalFilters(prev => prev.map((x, i) => {
+                                                if (i !== idx) return x;
+                                                const sv = x.selectedValues.includes(val)
+                                                  ? x.selectedValues.filter(v => v !== val)
+                                                  : [...x.selectedValues, val];
+                                                return { ...x, selectedValues: sv };
+                                              }))}
+                                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs transition-colors text-left ${
+                                                selected ? "bg-accent/20 text-accent" : "hover:bg-secondary/30"
+                                              }`}
+                                            >
+                                              <div className={`size-3 rounded border flex-shrink-0 flex items-center justify-center ${selected ? "bg-accent border-accent" : "border-border"}`}>
+                                                {selected && <Check className="size-2 text-accent-foreground" />}
+                                              </div>
+                                              <span className="font-mono truncate">{val}</span>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </>
                           )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full h-7 text-xs border-dashed"
-                    onClick={() =>
-                      setGlobalFilters((prev) => [
-                        ...prev,
-                        {
-                          id: `gf${Date.now()}`,
-                          column: "",
-                          operator: "=",
-                          value: "",
-                        },
-                      ])
-                    }
-                  >
+                  <Button variant="outline" size="sm" className="w-full h-7 text-xs border-dashed"
+                    onClick={() => setGlobalFilters(prev => [...prev, {
+                      id: `gf${Date.now()}`, column: "", filterType: "operator",
+                      operator: "=", value: "", rangeMin: "", rangeMax: "", selectedValues: [],
+                    }])}>
                     <Plus className="size-3 mr-1" /> Add Filter
                   </Button>
                 </div>
@@ -1986,7 +2080,7 @@ export default function VisualizePage() {
                           size="sm"
                           variant="outline"
                           className="w-full h-7 text-xs gap-1.5"
-                          onClick={() => openEditDialog(focusedWidget)}
+                          onClick={() => openEditWizard(focusedWidget)}
                         >
                           <Pencil className="size-3" /> Edit Chart
                         </Button>
@@ -2067,173 +2161,7 @@ export default function VisualizePage() {
         </DialogContent>
       </Dialog>
 
-      {/* ════════════════ EDIT CHART DIALOG ════════════════ */}
-      <Dialog
-        open={editDialogOpen}
-        onOpenChange={(v) => {
-          if (!v) setEditDialogOpen(false);
-        }}
-      >
-        <DialogContent
-          className={`glass-panel border-accent/20 ${
-            editBuildMode === "manual"
-              ? "sm:max-w-4xl max-h-[90vh] overflow-y-auto"
-              : "sm:max-w-2xl"
-          }`}
-        >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="size-4 text-accent" /> Edit Chart
-            </DialogTitle>
-            <DialogDescription>
-              Reconfigure with Manual Builder or re-generate with AI.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-1">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                Chart Title
-              </label>
-              <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="text-sm"
-              />
-            </div>
-
-            <div className="rounded-lg bg-black/20 border border-border/40 px-3 py-2 flex items-center gap-2">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
-                Source
-              </p>
-              <p className="text-xs font-medium truncate">
-                {editingWidget?.dataSourceName}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-1.5 p-1 bg-black/20 border border-border/40 rounded-xl w-fit">
-              <button
-                onClick={() => setEditBuildMode("manual")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  editBuildMode === "manual"
-                    ? "bg-accent text-accent-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Sliders className="size-3" /> Manual Builder
-              </button>
-              <button
-                onClick={() => setEditBuildMode("ai")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  editBuildMode === "ai"
-                    ? "bg-accent text-accent-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Sparkles className="size-3" /> AI Describe
-              </button>
-            </div>
-
-            {editSchemaLoading && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" /> Loading schema…
-              </div>
-            )}
-
-            {editBuildMode === "manual" && !editSchemaLoading && (
-              <ManualChartBuilder
-                columns={editSchema.columns}
-                rows={editSchema.rows}
-                sourceType={editingWidget?.dataSourceType || "database"}
-                connectionId={
-                  editingWidget?.dataSourceType === "database"
-                    ? editingWidget.dataSourceId
-                    : undefined
-                }
-                tableName={
-                  editingWidget?.dataSourceName
-                    .split(" / ")
-                    .pop()
-                    ?.split(" ⋈")[0]
-                    ?.trim() || ""
-                }
-                dbType={
-                  connections.find(
-                    (c) => c.id === editingWidget?.dataSourceId
-                  )?.type
-                }
-                onGenerate={(config, title) => {
-                  setEditPreview(config);
-                  setEditTitle(title);
-                }}
-              />
-            )}
-
-            {editBuildMode === "ai" && !editSchemaLoading && (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Describe the chart
-                  </label>
-                  <Textarea
-                    value={editPrompt}
-                    onChange={(e) => setEditPrompt(e.target.value)}
-                    className="resize-none text-sm"
-                    rows={3}
-                    placeholder="e.g. Show me revenue by month as a line chart…"
-                  />
-                </div>
-                <Button
-                  onClick={runEditGenerate}
-                  disabled={!editPrompt.trim() || editGenerating}
-                  className="w-full gap-2"
-                >
-                  {editGenerating ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> Generating…
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="size-4" /> Re-generate Chart
-                    </>
-                  )}
-                </Button>
-                {editPreview && (
-                  <div className="rounded-xl border border-border/40 bg-black/20 p-4">
-                    <ChartRenderer
-                      config={{ ...editPreview, title: editTitle }}
-                      height={240}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 flex-row justify-between pt-2">
-            <Button
-              variant="ghost"
-              onClick={() => setEditDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={saveEditWidget}
-              disabled={editSaving || !editPreview}
-            >
-              {editSaving ? (
-                <>
-                  <Loader2 className="size-4 mr-2 animate-spin" /> Saving…
-                </>
-              ) : (
-                "Save Changes"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ════════════════ ADD CHART WIZARD (Sheet) ════════════════ */}
+      {/* ════════════════ ADD / EDIT CHART WIZARD (Sheet) ════════════════ */}
       <Sheet open={wizardOpen} onOpenChange={setWizardOpen}>
         <SheetContent
           side="right"
@@ -2246,11 +2174,18 @@ export default function VisualizePage() {
           {/* Sheet header */}
           <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
             <SheetTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-accent" />
-              Add Chart — {STEPS[step]}
+              {isEditMode ? (
+                <><Pencil className="size-4 text-accent" /> Edit Chart — {STEPS[step]}</>
+              ) : (
+                <><Sparkles className="size-4 text-accent" /> Add Chart — {STEPS[step]}</>
+              )}
             </SheetTitle>
             <SheetDescription className="text-xs">
-              Step {step + 1} of {STEPS.length}
+              {isEditMode ? (
+                <span className="text-accent/80">Editing: {editTargetWidget?.title}</span>
+              ) : (
+                `Step ${step + 1} of ${STEPS.length}`
+              )}
             </SheetDescription>
             {/* Step progress */}
             <div className="flex gap-1 pt-1">
@@ -3054,6 +2989,17 @@ export default function VisualizePage() {
                               {fm.fieldType}
                             </Badge>
 
+                            {/* Null count badge */}
+                            {(() => {
+                              const nulls = getNullCount(fm.originalName);
+                              if (nulls === 0) return null;
+                              return (
+                                <Badge variant="outline" className="text-[8px] shrink-0 border-yellow-500/30 text-yellow-500/80" title={`${nulls} null/empty values in sample`}>
+                                  {nulls} null
+                                </Badge>
+                              );
+                            })()}
+
                             {/* Actions */}
                             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                               <Button
@@ -3093,6 +3039,90 @@ export default function VisualizePage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Pre-visualization Filters */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                        <ListFilter className="size-3" /> Pre-viz Filters
+                        {preFilters.filter(f => f.column).length > 0 && (
+                          <span className="bg-accent text-accent-foreground rounded-full px-1.5 text-[8px] font-bold">
+                            {preFilters.filter(f => f.column).length}
+                          </span>
+                        )}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2 gap-1 border-dashed"
+                        onClick={() => setPreFilters(prev => [...prev, { id: `pf${Date.now()}`, column: "", operator: "=" as const, value: "" }])}
+                      >
+                        <Plus className="size-3" /> Add Filter
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/70 mb-2">
+                      Rows that don&apos;t match these filters are excluded before chart generation.
+                    </p>
+                    {preFilters.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-4 text-center text-muted-foreground border-2 border-dashed border-border/30 rounded-xl">
+                        <Filter className="size-4 mb-1 opacity-20" />
+                        <p className="text-[10px]">No pre-filters — all rows used</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {preFilters.map((pf, idx) => {
+                          const cols = sourceType === "database" ? tableSchema.columns : (fileSchema?.columns || []);
+                          return (
+                            <div key={pf.id} className="rounded-xl border border-border/40 bg-secondary/5 p-2.5 space-y-1.5">
+                              <div className="flex gap-2 items-center">
+                                <Select
+                                  value={pf.column || "__none__"}
+                                  onValueChange={(v) => setPreFilters(prev => prev.map((f, i) => i === idx ? { ...f, column: v === "__none__" ? "" : v } : f))}
+                                >
+                                  <SelectTrigger className="h-7 text-xs flex-1">
+                                    <SelectValue placeholder="Column…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__" className="text-xs text-muted-foreground">Column…</SelectItem>
+                                    {cols.map(c => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.name}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={pf.operator}
+                                  onValueChange={(v) => setPreFilters(prev => prev.map((f, i) => i === idx ? { ...f, operator: v as PreFilter["operator"] } : f))}
+                                >
+                                  <SelectTrigger className="h-7 text-xs w-28">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[
+                                      { v: "=", l: "equals" }, { v: "!=", l: "not equals" },
+                                      { v: ">", l: ">" }, { v: "<", l: "<" },
+                                      { v: ">=", l: ">=" }, { v: "<=", l: "<=" },
+                                      { v: "contains", l: "contains" },
+                                      { v: "is_empty", l: "is empty" }, { v: "is_not_empty", l: "not empty" },
+                                    ].map(op => <SelectItem key={op.v} value={op.v} className="text-xs">{op.l}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                <Button size="icon" variant="ghost" className="size-7 hover:text-destructive shrink-0"
+                                  onClick={() => setPreFilters(prev => prev.filter((_, i) => i !== idx))}>
+                                  <X className="size-3" />
+                                </Button>
+                              </div>
+                              {pf.operator !== "is_empty" && pf.operator !== "is_not_empty" && (
+                                <Input
+                                  value={pf.value}
+                                  onChange={(e) => setPreFilters(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
+                                  className="h-7 text-xs"
+                                  placeholder="Value…"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Calculated fields */}
                   <div>
@@ -3431,6 +3461,8 @@ export default function VisualizePage() {
                     <>
                       <Loader2 className="size-4 mr-2 animate-spin" /> Saving…
                     </>
+                  ) : isEditMode ? (
+                    "Save Changes"
                   ) : (
                     "Save to Dashboard"
                   )}
