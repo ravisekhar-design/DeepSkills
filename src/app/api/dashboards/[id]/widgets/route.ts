@@ -1,135 +1,62 @@
-import { NextResponse } from 'next/server';
+/**
+ * LAYER: Middleware / BFF
+ * Dashboard widget create, update, delete.
+ */
+
+import { NextRequest } from 'next/server';
+import { withAuth } from '@/lib/api/middleware';
+import { ok, created } from '@/lib/api/response';
+import { ValidationError } from '@/lib/api/errors';
+import { dashboardService } from '@/lib/services/dashboard.service';
 import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../auth/[...nextauth]/route';
 
 export const dynamic = 'force-dynamic';
 
-// POST /api/dashboards/[id]/widgets — add a widget to a dashboard
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const userId = (session.user as any).id;
+type Params = { id: string };
 
-    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
-    if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+// POST /api/dashboards/[id]/widgets — add a widget
+export const POST = withAuth(async (req: NextRequest, session, ctx) => {
+  const { id: dashboardId } = await (ctx.params as unknown as Promise<Params>);
+  const body = await req.json();
 
-    const body = await request.json();
-    const { title, chartType, chartConfig, dataSourceType, dataSourceId, dataSourceName, dataQuery, prompt, gridW } = body;
-
-    if (!title || !chartType || !chartConfig || !dataSourceType || !dataSourceId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-
-    const widget = await (prisma as any).dashboardWidget.create({
-      data: {
-        dashboardId: id,
-        title,
-        chartType,
-        chartConfig: typeof chartConfig === 'string' ? chartConfig : JSON.stringify(chartConfig),
-        dataSourceType,
-        dataSourceId,
-        dataSourceName: dataSourceName || '',
-        dataQuery: dataQuery || null,
-        prompt: prompt || '',
-        gridW: gridW || 1,
-      },
-    });
-
-    // Touch the dashboard's updatedAt
-    await (prisma as any).dashboard.update({ where: { id }, data: { updatedAt: new Date() } });
-
-    return NextResponse.json({
-      data: {
-        id: widget.id,
-        dashboardId: widget.dashboardId,
-        title: widget.title,
-        chartType: widget.chartType,
-        chartConfig: (() => { try { return JSON.parse(widget.chartConfig); } catch { return {}; } })(),
-        dataSourceType: widget.dataSourceType,
-        dataSourceId: widget.dataSourceId,
-        dataSourceName: widget.dataSourceName,
-        dataQuery: widget.dataQuery,
-        prompt: widget.prompt,
-        gridW: widget.gridW,
-        createdAt: widget.createdAt.getTime(),
-      },
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!body?.title || !body?.chartType || !body?.chartConfig || !body?.dataSourceType || !body?.dataSourceId) {
+    throw new ValidationError('title, chartType, chartConfig, dataSourceType and dataSourceId are required');
   }
-}
 
-// PATCH /api/dashboards/[id]/widgets?widgetId=xxx — update title / chartType / config / query / prompt
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const userId = (session.user as any).id;
+  const widget = await dashboardService.createWidget(session.user.id, dashboardId, body);
 
-    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
-    if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  // Touch dashboard updatedAt
+  await (prisma as any).dashboard.update({ where: { id: dashboardId }, data: { updatedAt: new Date() } });
 
-    const { searchParams } = new URL(request.url);
-    const widgetId = searchParams.get('widgetId');
-    if (!widgetId) return NextResponse.json({ error: 'widgetId required' }, { status: 400 });
+  return created(widget);
+});
 
-    const existing = await (prisma as any).dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
-    if (!existing) return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+// PATCH /api/dashboards/[id]/widgets?widgetId=xxx — update a widget
+export const PATCH = withAuth(async (req: NextRequest, session, ctx) => {
+  const { id: dashboardId } = await (ctx.params as unknown as Promise<Params>);
+  const widgetId = req.nextUrl.searchParams.get('widgetId');
+  if (!widgetId) throw new ValidationError('widgetId query param is required');
 
-    const body = await request.json();
-    const upd: any = {};
-    if (body.title      !== undefined) upd.title      = body.title;
-    if (body.chartType  !== undefined) upd.chartType  = body.chartType;
-    if (body.chartConfig !== undefined)
-      upd.chartConfig = typeof body.chartConfig === 'string' ? body.chartConfig : JSON.stringify(body.chartConfig);
-    if (body.dataQuery  !== undefined) upd.dataQuery  = body.dataQuery ?? null;
-    if (body.prompt     !== undefined) upd.prompt     = body.prompt;
-
-    const widget = await (prisma as any).dashboardWidget.update({ where: { id: widgetId }, data: upd });
-
-    return NextResponse.json({
-      data: {
-        id: widget.id,
-        dashboardId: widget.dashboardId,
-        title: widget.title,
-        chartType: widget.chartType,
-        chartConfig: (() => { try { return JSON.parse(widget.chartConfig); } catch { return {}; } })(),
-        dataSourceType: widget.dataSourceType,
-        dataSourceId: widget.dataSourceId,
-        dataSourceName: widget.dataSourceName,
-        dataQuery: widget.dataQuery,
-        prompt: widget.prompt,
-        gridW: widget.gridW,
-        createdAt: widget.createdAt.getTime(),
-      },
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+  const body = await req.json();
+  const widget = await dashboardService.updateWidget(session.user.id, widgetId, body);
+  return ok(widget);
+});
 
 // DELETE /api/dashboards/[id]/widgets?widgetId=xxx — remove a widget
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const userId = (session.user as any).id;
+export const DELETE = withAuth(async (req: NextRequest, session, ctx) => {
+  const { id: dashboardId } = await (ctx.params as unknown as Promise<Params>);
+  const widgetId = req.nextUrl.searchParams.get('widgetId');
+  if (!widgetId) throw new ValidationError('widgetId query param is required');
 
-    const dashboard = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
-    if (!dashboard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-
-    const { searchParams } = new URL(request.url);
-    const widgetId = searchParams.get('widgetId');
-    if (!widgetId) return NextResponse.json({ error: 'widgetId required' }, { status: 400 });
-
-    await (prisma as any).dashboardWidget.delete({ where: { id: widgetId } });
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Ownership: verify the widget belongs to a dashboard owned by this user
+  const widget = await (prisma as any).dashboardWidget.findFirst({
+    where: { id: widgetId, dashboardId },
+    include: { dashboard: { select: { userId: true } } },
+  });
+  if (!widget || widget.dashboard.userId !== session.user.id) {
+    throw new ValidationError('Widget not found');
   }
-}
+
+  await (prisma as any).dashboardWidget.delete({ where: { id: widgetId } });
+  return ok({ success: true });
+});

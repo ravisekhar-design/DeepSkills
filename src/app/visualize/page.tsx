@@ -27,7 +27,7 @@ import { useUser } from "@/hooks/use-user";
 import { useDoc } from "@/hooks/use-doc";
 import { ChartRenderer } from "@/components/chart-renderer";
 import { ManualChartBuilder } from "@/components/manual-chart-builder";
-import { generateChart, type GeneratedChartConfig, type ChartFilter } from "@/ai/flows/chart-generation";
+import { generateChart, type GeneratedChartConfig } from "@/ai/flows/chart-generation";
 import type { DatabaseConnection, SystemSettings } from "@/lib/store";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 
@@ -3314,6 +3314,7 @@ export default function VisualizePage() {
 
                   {buildMode === "manual" && (
                     <ManualChartBuilder
+                      key={editTargetWidget?.id ?? 'new'}
                       columns={getEffectiveColumns()}
                       rows={
                         sourceType === "database"
