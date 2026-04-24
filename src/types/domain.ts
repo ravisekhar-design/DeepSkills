@@ -133,6 +133,10 @@ export interface ChatThread {
 export interface Dashboard {
   id: string;
   name: string;
+  description?: string;
+  boundSourceType?: 'database' | 'file';
+  boundSourceId?: string;
+  boundSourceName?: string;
   widgetCount?: number;
   createdAt: number;
   updatedAt: number;

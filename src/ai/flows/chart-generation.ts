@@ -34,6 +34,7 @@ export type ChartType =
   | 'radial_bar'
   | 'waterfall'
   | 'heatmap'
+  | 'histogram'
   | 'gauge'
   | 'sankey';
 
@@ -49,6 +50,7 @@ export interface GeneratedChartConfig {
   filters?: ChartFilter[];                     // chart-level filters (metadata only)
   showLabels?: boolean;                        // show data labels on chart
   sortOrder?: 'default' | 'asc' | 'desc';     // data sort order
+  bins?: number;                               // histogram: number of bins (default 10)
 }
 
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#a3e635', '#f59e0b', '#ef4444', '#8b5cf6'];

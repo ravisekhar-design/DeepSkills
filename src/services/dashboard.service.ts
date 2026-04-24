@@ -25,6 +25,22 @@ export const dashboardClientService = {
     return patch<Dashboard>(`/api/dashboards/${id}`, { name });
   },
 
+  async bindSource(
+    id: string,
+    sourceType: string | null,
+    sourceId: string | null,
+    sourceName: string | null,
+  ): Promise<Dashboard> {
+    if (!sourceType) {
+      return patch<Dashboard>(`/api/dashboards/${id}`, { clearBoundSource: true });
+    }
+    return patch<Dashboard>(`/api/dashboards/${id}`, {
+      boundSourceType: sourceType,
+      boundSourceId: sourceId,
+      boundSourceName: sourceName,
+    });
+  },
+
   async delete(id: string): Promise<void> {
     await del(`/api/dashboards/${id}`);
   },

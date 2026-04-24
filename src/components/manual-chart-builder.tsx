@@ -5,7 +5,6 @@ import { Plus, X, Play, Loader2, Filter, ArrowUpDown, Tag, GripHorizontal } from
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { ChartRenderer } from "@/components/chart-renderer";
 import type { GeneratedChartConfig, ChartType, ChartSeries, ChartFilter } from "@/ai/flows/chart-generation";
 
@@ -74,6 +73,7 @@ const CHART_TYPES: { type: ChartType; label: string; group: string }[] = [
   { type: 'horizontal_bar', label: 'H. Bar',      group: 'Comparison' },
   { type: 'stacked_bar',    label: 'Stacked',     group: 'Comparison' },
   { type: 'waterfall',      label: 'Waterfall',   group: 'Comparison' },
+  { type: 'histogram',      label: 'Histogram',   group: 'Distribution' },
   { type: 'line',           label: 'Line',        group: 'Trend' },
   { type: 'area',           label: 'Area',        group: 'Trend' },
   { type: 'pie',            label: 'Pie',         group: 'Part-to-Whole' },
@@ -112,6 +112,8 @@ function getChartUIConfig(chartType: ChartType): ChartUIConfig {
       return { xLabel: 'X Axis', yLabel: 'Color Intensity', showGroupBy: true, showTarget: false, maxMeasures: 1 };
     case 'pie': case 'donut': case 'treemap': case 'funnel': case 'radial_bar': case 'waterfall':
       return { xLabel: 'Category / Label', yLabel: 'Value', showGroupBy: false, showTarget: false, maxMeasures: 1 };
+    case 'histogram':
+      return { xLabel: 'Numeric Field (auto-binned)', yLabel: 'Frequency', showGroupBy: false, showTarget: false, maxMeasures: 1 };
     default:
       return { xLabel: 'X-Axis / Category', yLabel: 'Y-Axis / Values', showGroupBy: true, showTarget: false, maxMeasures: 6 };
   }

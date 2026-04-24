@@ -28,6 +28,10 @@ function dashboardFromRow(d: any, includeWidgets = false): Dashboard & { widgets
   return {
     id: d.id,
     name: d.name,
+    description: d.description ?? undefined,
+    boundSourceType: d.boundSourceType ?? undefined,
+    boundSourceId: d.boundSourceId ?? undefined,
+    boundSourceName: d.boundSourceName ?? undefined,
     widgetCount: d._count?.widgets ?? d.widgets?.length,
     createdAt: d.createdAt?.getTime?.() ?? d.createdAt,
     updatedAt: d.updatedAt?.getTime?.() ?? d.updatedAt,
@@ -54,10 +58,10 @@ export const dashboardService = {
     return dashboardFromRow(row, true) as Dashboard & { widgets: DashboardWidget[] };
   },
 
-  async create(userId: string, name: string): Promise<Dashboard> {
+  async create(userId: string, name: string, description?: string): Promise<Dashboard> {
     if (!name?.trim()) throw new ValidationError('name is required');
     const row = await (prisma as any).dashboard.create({
-      data: { userId, name: name.trim() },
+      data: { userId, name: name.trim(), description: description?.trim() || null },
     });
     return dashboardFromRow(row);
   },
@@ -69,6 +73,22 @@ export const dashboardService = {
     const updated = await (prisma as any).dashboard.update({
       where: { id },
       data: { name: name.trim() },
+    });
+    return dashboardFromRow(updated);
+  },
+
+  async bindSource(
+    userId: string,
+    id: string,
+    sourceType: string | null,
+    sourceId: string | null,
+    sourceName: string | null,
+  ): Promise<Dashboard> {
+    const existing = await (prisma as any).dashboard.findFirst({ where: { id, userId } });
+    if (!existing) throw new NotFoundError('Dashboard', id);
+    const updated = await (prisma as any).dashboard.update({
+      where: { id },
+      data: { boundSourceType: sourceType, boundSourceId: sourceId, boundSourceName: sourceName },
     });
     return dashboardFromRow(updated);
   },

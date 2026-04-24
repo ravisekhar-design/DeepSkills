@@ -20,13 +20,25 @@ export const GET = withAuth(async (_req: NextRequest, session, ctx) => {
   return ok(dashboard);
 });
 
-// PATCH /api/dashboards/[id] — rename
+// PATCH /api/dashboards/[id] — rename or bind/unbind data source
 export const PATCH = withAuth(async (req: NextRequest, session, ctx) => {
   const { id } = await (ctx.params as unknown as Promise<Params>);
-  const { name } = await req.json();
-  if (!name?.trim()) throw new ValidationError('name is required');
-  const updated = await dashboardService.rename(session.user.id, id, name);
-  return ok(updated);
+  const body = await req.json();
+  if (body.name !== undefined) {
+    if (!body.name?.trim()) throw new ValidationError('name is required');
+    const updated = await dashboardService.rename(session.user.id, id, body.name);
+    return ok(updated);
+  }
+  if (body.boundSourceType !== undefined || body.clearBoundSource) {
+    const updated = await dashboardService.bindSource(
+      session.user.id, id,
+      body.clearBoundSource ? null : body.boundSourceType,
+      body.clearBoundSource ? null : body.boundSourceId,
+      body.clearBoundSource ? null : body.boundSourceName,
+    );
+    return ok(updated);
+  }
+  throw new ValidationError('name or bound source fields required');
 });
 
 // DELETE /api/dashboards/[id]

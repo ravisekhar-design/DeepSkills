@@ -21,6 +21,6 @@ export const GET = withAuth(async (_req: NextRequest, session) => {
 export const POST = withAuth(async (req: NextRequest, session) => {
   const body = await req.json();
   if (!body?.name?.trim()) throw new ValidationError('name is required');
-  const dashboard = await dashboardService.create(session.user.id, body.name);
+  const dashboard = await dashboardService.create(session.user.id, body.name, body.description);
   return created(dashboard);
 });

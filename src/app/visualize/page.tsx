@@ -36,6 +36,10 @@ import { DEFAULT_SETTINGS } from "@/lib/store";
 interface Dashboard {
   id: string;
   name: string;
+  description?: string;
+  boundSourceType?: "database" | "file";
+  boundSourceId?: string;
+  boundSourceName?: string;
   widgetCount: number;
   createdAt: number;
   updatedAt: number;
@@ -215,9 +219,11 @@ export default function VisualizePage() {
   const [selected, setSelected] = useState<DashboardDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [newDashName, setNewDashName] = useState("");
+  const [newDashDesc, setNewDashDesc] = useState("");
   const [creatingDash, setCreatingDash] = useState(false);
-  const [showNewDash, setShowNewDash] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [crossFilter, setCrossFilter] = useState<{ column: string; value: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
   // ── Wizard state ──────────────────────────────────────────────────────────
@@ -356,13 +362,14 @@ export default function VisualizePage() {
       const res = await fetch("/api/dashboards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newDashName.trim() }),
+        body: JSON.stringify({ name: newDashName.trim(), description: newDashDesc.trim() || undefined }),
       });
       const json = await res.json();
       if (json.data) {
         setDashboards((prev) => [json.data, ...prev]);
         setNewDashName("");
-        setShowNewDash(false);
+        setNewDashDesc("");
+        setShowCreateDialog(false);
         loadDetail(json.data.id);
       }
     } catch {}
@@ -428,7 +435,7 @@ export default function VisualizePage() {
   };
 
   // ── Open wizard (add new chart) ───────────────────────────────────────────
-  const openWizard = async () => {
+  const openWizard = async (forceSourceStep = false) => {
     try {
       const [connRes, folderRes] = await Promise.all([
         fetch("/api/store?key=nexus_databases"),
@@ -440,6 +447,54 @@ export default function VisualizePage() {
       setFolders(folderJson.data || []);
     } catch {}
     resetWizardState();
+
+    if (!forceSourceStep && selected?.boundSourceId && selected?.boundSourceType) {
+      const srcType = selected.boundSourceType as "database" | "file";
+      setSourceType(srcType);
+      if (srcType === "database") {
+        setSelectedConn(selected.boundSourceId);
+        try {
+          const tblRes = await fetch(`/api/dashboards/schema?connectionId=${selected.boundSourceId}`);
+          const tblJson = await tblRes.json();
+          setTables(tblJson.data?.tables || []);
+          const tblName = (selected.boundSourceName || "").split(" / ").pop()?.split(" ⋈")[0]?.trim() || "";
+          if (tblName) {
+            setSelectedTable(tblName);
+            const schRes = await fetch(
+              `/api/dashboards/schema?connectionId=${selected.boundSourceId}&table=${encodeURIComponent(tblName)}`
+            );
+            const schJson = await schRes.json();
+            const cols: SchemaColumn[] = schJson.data?.columns || [];
+            setTableSchema({ columns: cols, sampleRows: schJson.data?.sampleRows || [] });
+            setFieldMappings(cols.map((c) => ({
+              originalName: c.name,
+              displayName: c.name,
+              fieldType: isNumericType(c.type) ? "measure" : "dimension",
+              hidden: false,
+            })));
+            setStep(2);
+          }
+        } catch {}
+      } else {
+        setSelectedFile(selected.boundSourceId);
+        try {
+          const res = await fetch(`/api/files?type=content&fileId=${selected.boundSourceId}`);
+          const json = await res.json();
+          if (json.data?.content) {
+            const parsed = parseFile(json.data.content, selected.boundSourceName || "");
+            setFileSchema(parsed);
+            setFieldMappings(parsed.columns.map((c) => ({
+              originalName: c.name,
+              displayName: c.name,
+              fieldType: isNumericType(c.type) ? "measure" : "dimension",
+              hidden: false,
+            })));
+            setStep(2);
+          }
+        } catch {}
+      }
+    }
+
     setWizardOpen(true);
   };
 
@@ -863,6 +918,27 @@ export default function VisualizePage() {
           );
           toast({ title: "Chart added", description: `"${previewTitle}" added.` });
           setWizardOpen(false);
+          // Auto-bind data source to dashboard on first chart
+          if (!selected.boundSourceId) {
+            const bindType = sourceType;
+            const bindId = sourceType === "database" ? selectedConn : selectedFile;
+            const bindName = sourceType === "database"
+              ? (joinSQL
+                  ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}`
+                  : `${conn?.name} / ${selectedTable}`)
+              : (file?.name || "");
+            if (bindId) {
+              try {
+                await fetch(`/api/dashboards/${selected.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName }),
+                });
+                setSelected((prev) => prev ? { ...prev, boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName } : prev);
+                setDashboards((prev) => prev.map((d) => d.id === selected.id ? { ...d, boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName } : d));
+              } catch {}
+            }
+          }
         } else {
           toast({ title: "Save failed", description: json.error, variant: "destructive" });
         }
@@ -1016,8 +1092,10 @@ export default function VisualizePage() {
 
   // ── Apply global filters at render time ───────────────────────────────────
   function applyGlobalFilters(config: GeneratedChartConfig): GeneratedChartConfig {
-    if (!globalFilters.length) return config;
-    const active = globalFilters.filter((f) => f.column);
+    const manualActive = globalFilters.filter((f) => f.column);
+    const active = crossFilter
+      ? [...manualActive, { id: "cross", column: crossFilter.column, filterType: "operator" as const, operator: "=" as const, value: crossFilter.value, rangeMin: "", rangeMax: "", selectedValues: [] }]
+      : manualActive;
     if (!active.length) return config;
     const filtered = config.data.filter((row) =>
       active.every((f) => {
@@ -1052,6 +1130,15 @@ export default function VisualizePage() {
     );
     return { ...config, data: filtered };
   }
+
+  // ── Cross-filter via chart click ──────────────────────────────────────────
+  const handleChartClick = useCallback((column: string, value: string | number) => {
+    if (!column) return;
+    const strVal = String(value);
+    setCrossFilter((prev) =>
+      prev?.column === column && prev?.value === strVal ? null : { column, value: strVal }
+    );
+  }, []);
 
   // ── Unique values for multi-select filters ────────────────────────────────
   const getUniqueValues = useCallback((column: string): string[] => {
@@ -1190,50 +1277,13 @@ export default function VisualizePage() {
             <BarChart2 className="size-4 text-accent shrink-0" />
             <h2 className="font-bold text-sm">Dashboards</h2>
           </div>
-          {showNewDash ? (
-            <div className="flex gap-1">
-              <Input
-                autoFocus
-                value={newDashName}
-                onChange={(e) => setNewDashName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") createDashboard();
-                  if (e.key === "Escape") setShowNewDash(false);
-                }}
-                placeholder="Dashboard name…"
-                className="h-8 text-xs"
-              />
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8 shrink-0"
-                onClick={createDashboard}
-                disabled={creatingDash}
-              >
-                {creatingDash ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <Check className="size-3" />
-                )}
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-8 shrink-0"
-                onClick={() => setShowNewDash(false)}
-              >
-                <X className="size-3" />
-              </Button>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              className="w-full h-8 text-xs"
-              onClick={() => setShowNewDash(true)}
-            >
-              <Plus className="size-3 mr-1" /> New Dashboard
-            </Button>
-          )}
+          <Button
+            size="sm"
+            className="w-full h-8 text-xs"
+            onClick={() => { setNewDashName(""); setNewDashDesc(""); setShowCreateDialog(true); }}
+          >
+            <Plus className="size-3 mr-1" /> New Dashboard
+          </Button>
         </div>
 
         <ScrollArea className="flex-1">
@@ -1414,34 +1464,58 @@ export default function VisualizePage() {
 
               <div className="flex-1 min-w-0">
                 <h1 className="text-base font-bold truncate">{selected.name}</h1>
-                <p className="text-[10px] text-muted-foreground">
-                  {selected.widgets.length} chart
-                  {selected.widgets.length !== 1 ? "s" : ""}
-                  {activeFilterCount > 0 && (
-                    <span className="ml-2 text-accent">
-                      · {activeFilterCount} active filter
-                      {activeFilterCount !== 1 ? "s" : ""}
-                    </span>
+                <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                  <p className="text-[10px] text-muted-foreground">
+                    {selected.widgets.length} chart{selected.widgets.length !== 1 ? "s" : ""}
+                    {activeFilterCount > 0 && (
+                      <span className="ml-1 text-accent">
+                        · {activeFilterCount} filter{activeFilterCount !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {crossFilter && (
+                      <span className="ml-1 text-accent">
+                        · cross-filtering
+                      </span>
+                    )}
+                  </p>
+                  {selected.boundSourceId && (
+                    <Badge variant="outline" className="text-[9px] gap-1 h-4 font-normal py-0">
+                      {selected.boundSourceType === "database"
+                        ? <Database className="size-2.5" />
+                        : <FileText className="size-2.5" />}
+                      <span className="max-w-[140px] truncate">{selected.boundSourceName}</span>
+                    </Badge>
                   )}
-                </p>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {selected.boundSourceId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 h-8 text-xs text-muted-foreground"
+                    title="Change data source binding"
+                    onClick={() => openWizard(true)}
+                  >
+                    <Link2 className="size-3" /> Source
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
-                  className={`gap-1.5 text-xs h-8 ${activeFilterCount > 0 ? "border-accent text-accent" : ""}`}
+                  className={`gap-1.5 text-xs h-8 ${(activeFilterCount > 0 || crossFilter) ? "border-accent text-accent" : ""}`}
                   onClick={() => setRightPanelTab("filters")}
                 >
                   <Filter className="size-3.5" />
                   Filters
-                  {activeFilterCount > 0 && (
+                  {(activeFilterCount + (crossFilter ? 1 : 0)) > 0 && (
                     <span className="ml-0.5 bg-accent text-accent-foreground rounded-full px-1.5 text-[9px] font-bold">
-                      {activeFilterCount}
+                      {activeFilterCount + (crossFilter ? 1 : 0)}
                     </span>
                   )}
                 </Button>
-                <Button onClick={openWizard} className="gap-1.5 h-8 text-xs">
+                <Button onClick={() => openWizard()} className="gap-1.5 h-8 text-xs">
                   <Plus className="size-3.5" /> Add Chart
                 </Button>
                 <Button
@@ -1459,6 +1533,26 @@ export default function VisualizePage() {
                 </Button>
               </div>
             </div>
+
+            {/* Cross-filter banner */}
+            {crossFilter && (
+              <div className="shrink-0 px-6 py-1.5 bg-accent/5 border-b border-accent/20 flex items-center gap-2">
+                <Filter className="size-3 text-accent shrink-0" />
+                <span className="text-xs font-medium text-accent">Cross-filter:</span>
+                <Badge variant="outline" className="text-[9px] font-mono bg-accent/10 border-accent/30">
+                  {crossFilter.column} = {crossFilter.value}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
+                  Click same value to clear, or —
+                </span>
+                <button
+                  className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+                  onClick={() => setCrossFilter(null)}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
 
             {/* Chart grid (scrollable) */}
             <ScrollArea className="flex-1">
@@ -1490,7 +1584,7 @@ export default function VisualizePage() {
                         Use the Manual Builder or AI to create charts from your prepared data.
                       </p>
                     </div>
-                    <Button onClick={openWizard} className="gap-2 mt-2">
+                    <Button onClick={() => openWizard()} className="gap-2 mt-2">
                       <Database className="size-3.5" /> Connect Data &amp; Add Chart
                     </Button>
                   </div>
@@ -1637,6 +1731,7 @@ export default function VisualizePage() {
                           <ChartRenderer
                             config={applyGlobalFilters(widget.chartConfig)}
                             height={240}
+                            onDataPointClick={handleChartClick}
                           />
                         </CardContent>
                       </Card>
@@ -2161,6 +2256,50 @@ export default function VisualizePage() {
               />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════ CREATE DASHBOARD DIALOG ════════════════ */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Dashboard</DialogTitle>
+            <DialogDescription>Give your dashboard a name and an optional description.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name *</label>
+              <Input
+                autoFocus
+                value={newDashName}
+                onChange={(e) => setNewDashName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createDashboard();
+                  if (e.key === "Escape") setShowCreateDialog(false);
+                }}
+                placeholder="e.g. Sales Overview"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+              <Textarea
+                value={newDashDesc}
+                onChange={(e) => setNewDashDesc(e.target.value)}
+                placeholder="What is this dashboard for?"
+                className="h-20 resize-none text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={createDashboard} disabled={creatingDash || !newDashName.trim()}>
+              {creatingDash && <Loader2 className="size-3 animate-spin mr-1.5" />}
+              Create
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

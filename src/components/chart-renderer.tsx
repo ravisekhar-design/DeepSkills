@@ -19,6 +19,7 @@ import type { GeneratedChartConfig } from '@/ai/flows/chart-generation';
 interface ChartRendererProps {
   config: GeneratedChartConfig;
   height?: number;
+  onDataPointClick?: (column: string, value: string | number) => void;
 }
 
 const CHART_COLORS = ['#6366f1', '#22d3ee', '#a3e635', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -65,9 +66,20 @@ function lerpColor(t: number, from = [15, 15, 26], to = [99, 102, 241]): string 
   return `rgb(${r},${g},${b})`;
 }
 
-export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
+export function ChartRenderer({ config, height = 260, onDataPointClick }: ChartRendererProps) {
   const { chartType, xKey, series, data } = config;
   const showLabels = config.showLabels ?? false;
+
+  const handleBarClick = (payload: any) => {
+    if (!onDataPointClick || !payload?.activePayload?.[0]?.payload) return;
+    const row = payload.activePayload[0].payload;
+    if (row[xKey] != null) onDataPointClick(xKey, row[xKey]);
+  };
+
+  const handlePieClick = (entry: any) => {
+    if (!onDataPointClick) return;
+    if (entry?.name != null) onDataPointClick(xKey, entry.name);
+  };
 
   if (!data || data.length === 0) {
     return (
@@ -96,6 +108,8 @@ export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
             innerRadius={innerRadius}
             outerRadius="75%"
             dataKey="value"
+            onClick={handlePieClick}
+            style={{ cursor: onDataPointClick ? 'pointer' : 'default' }}
           >
             {pieData.map((_: any, index: number) => (
               <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -112,7 +126,7 @@ export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
   if (chartType === 'line') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+        <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} onClick={handleBarClick} style={{ cursor: onDataPointClick ? 'pointer' : 'default' }}>
           <CartesianGrid {...commonGridProps} />
           <XAxis dataKey={xKey} {...commonAxisProps} />
           <YAxis {...commonAxisProps} width={40} />
@@ -139,7 +153,7 @@ export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
   if (chartType === 'area') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+        <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} onClick={handleBarClick} style={{ cursor: onDataPointClick ? 'pointer' : 'default' }}>
           <defs>
             {series.map((s) => (
               <linearGradient key={s.dataKey} id={`grad-${s.dataKey}`} x1="0" y1="0" x2="0" y2="1">
@@ -492,12 +506,7 @@ export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
     const nx = cx + nr * Math.cos(vAngle);
     const ny = cy - nr * Math.sin(vAngle);
 
-    // Accent color segments
-    const thresholds = [
-      { pct: 0.33, color: '#22d3ee' },
-      { pct: 0.66, color: '#a3e635' },
-      { pct: 1.00, color: '#ef4444' },
-    ];
+    // Gauge colors by threshold
 
     return (
       <div className="flex items-center justify-center" style={{ height }}>
@@ -700,10 +709,45 @@ export function ChartRenderer({ config, height = 260 }: ChartRendererProps) {
     );
   }
 
+  // ── Histogram ─────────────────────────────────────────────────────────────
+  if (chartType === 'histogram') {
+    const numField = series[0]?.dataKey ?? xKey;
+    const values = data
+      .map((row: any) => Number(row[numField]))
+      .filter((v: number) => !isNaN(v));
+    if (values.length === 0) {
+      return <div className="flex items-center justify-center h-32 text-muted-foreground text-xs">No numeric data</div>;
+    }
+    const bins = config.bins ?? 10;
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const bw = maxV === minV ? 1 : (maxV - minV) / bins;
+    const histData = Array.from({ length: bins }, (_, i) => {
+      const from = minV + i * bw;
+      const to = from + bw;
+      const count = values.filter((v: number) => i === bins - 1 ? v >= from && v <= to : v >= from && v < to).length;
+      const label = bw >= 1 ? `${Math.round(from)}–${Math.round(to)}` : `${from.toFixed(1)}–${to.toFixed(1)}`;
+      return { range: label, count };
+    });
+    return (
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={histData} barCategoryGap={2} margin={{ top: 4, right: 8, bottom: 28, left: 0 }}>
+          <CartesianGrid {...commonGridProps} />
+          <XAxis dataKey="range" {...commonAxisProps} angle={-30} textAnchor="end" height={44} tick={{ ...commonAxisProps.tick, fontSize: 9 }} />
+          <YAxis {...commonAxisProps} width={40} />
+          <Tooltip {...tooltipStyle} formatter={(v: any) => [v, 'Count']} />
+          <Bar dataKey="count" fill={series[0]?.color || CHART_COLORS[0]} radius={[3, 3, 0, 0]}>
+            {showLabels && <LabelList dataKey="count" position="top" fontSize={9} fill="hsl(var(--muted-foreground))" />}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
   // ── Default: Bar ───────────────────────────────────────────────────────────
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} onClick={handleBarClick} style={{ cursor: onDataPointClick ? 'pointer' : 'default' }}>
         <CartesianGrid {...commonGridProps} />
         <XAxis dataKey={xKey} {...commonAxisProps} />
         <YAxis {...commonAxisProps} width={40} />

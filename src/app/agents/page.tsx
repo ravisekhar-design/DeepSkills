@@ -352,16 +352,16 @@ export default function AgentsPage() {
               <Plus className="mr-2 size-5" /> Initialize Deep Agent
             </Button>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 overflow-hidden border-accent/20">
-            <DialogHeader className="p-6 pb-2">
-              <DialogTitle className="text-2xl flex items-center gap-3">
-                <BrainCircuit className="size-7 text-accent" />
+          <DialogContent className="w-[95vw] max-w-4xl glass-panel p-0 border-accent/20 flex flex-col" style={{ height: 'min(88vh, 780px)' }}>
+            <DialogHeader className="shrink-0 px-6 pt-5 pb-0">
+              <DialogTitle className="text-xl flex items-center gap-3">
+                <BrainCircuit className="size-6 text-accent" />
                 {editingAgent ? `Re-configure ${editingAgent.name}` : 'Initialize Deep Agent'}
               </DialogTitle>
             </DialogHeader>
 
-            <Tabs defaultValue="identity" className="w-full">
-              <TabsList className="w-full justify-start rounded-none border-b bg-sidebar/20 px-6 h-12 overflow-x-auto">
+            <Tabs defaultValue="identity" className="w-full flex flex-col flex-1 min-h-0 overflow-hidden">
+              <TabsList className="shrink-0 w-full justify-start rounded-none border-b bg-sidebar/20 px-6 h-11 overflow-x-auto mt-4">
                 <TabsTrigger value="identity" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
                   Persona & Goals
                 </TabsTrigger>
