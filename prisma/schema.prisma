@@ -28,6 +28,8 @@ model User {
   fileFolders         FileFolder[]
   fileRecords         FileRecord[]
   dashboards          Dashboard[]
+  dataPrepFlows       DataPrepFlow[]
+  preparedDatasets    PreparedDataset[]
 }
 
 model Account {
@@ -196,6 +198,33 @@ model DashboardWidget {
   gridW          Int       @default(1) // 1=half, 2=full width
   createdAt      DateTime  @default(now())
   dashboard      Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+}
+
+model DataPrepFlow {
+  id          String            @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  steps       String            @db.Text  // JSON: PrepStep[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  datasets    PreparedDataset[]
+}
+
+model PreparedDataset {
+  id          String       @id @default(cuid())
+  userId      String
+  flowId      String
+  name        String
+  description String?
+  schema      String       @db.Text  // JSON: ColumnSchema[]
+  sampleRows  String       @db.Text  // JSON: first 200 rows
+  rowCount    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flow        DataPrepFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
 }
 
 model LoginOtp {

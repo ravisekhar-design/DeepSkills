@@ -9,7 +9,7 @@ import {
   Settings2, Hash, Type, Link2,
   PanelRightClose, PanelRightOpen, Layers, ArrowRight,
   Eye, EyeOff, ChevronDown, ChevronUp,
-  Calculator, Copy, Search, SlidersHorizontal, ListFilter,
+  Calculator, Copy, Search, SlidersHorizontal, ListFilter, FolderOutput,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,8 @@ import { ManualChartBuilder } from "@/components/manual-chart-builder";
 import { generateChart, type GeneratedChartConfig } from "@/ai/flows/chart-generation";
 import type { DatabaseConnection, SystemSettings } from "@/lib/store";
 import { DEFAULT_SETTINGS } from "@/lib/store";
+import { dataPrepClientService } from "@/services/data-prep.service";
+import type { PreparedDataset } from "@/lib/data-prep/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,7 +39,7 @@ interface Dashboard {
   id: string;
   name: string;
   description?: string;
-  boundSourceType?: "database" | "file";
+  boundSourceType?: "database" | "file" | "prepared_dataset";
   boundSourceId?: string;
   boundSourceName?: string;
   widgetCount: number;
@@ -229,7 +231,10 @@ export default function VisualizePage() {
   // ── Wizard state ──────────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [sourceType, setSourceType] = useState<"database" | "file">("database");
+  const [sourceType, setSourceType] = useState<"database" | "file" | "dataset">("database");
+  const [datasets, setDatasets] = useState<PreparedDataset[]>([]);
+  const [selectedDataset, setSelectedDataset] = useState<PreparedDataset | null>(null);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [selectedConn, setSelectedConn] = useState("");
   const [tables, setTables] = useState<string[]>([]);
@@ -432,25 +437,40 @@ export default function VisualizePage() {
     setIsEditMode(false);
     setEditTargetWidget(null);
     setWizardInitialConfig(null);
+    setSelectedDataset(null);
   };
 
   // ── Open wizard (add new chart) ───────────────────────────────────────────
   const openWizard = async (forceSourceStep = false) => {
     try {
-      const [connRes, folderRes] = await Promise.all([
+      const [connRes, folderRes, dsList] = await Promise.all([
         fetch("/api/store?key=nexus_databases"),
         fetch("/api/files?type=folders"),
+        dataPrepClientService.getAllDatasets().catch(() => []),
       ]);
       const connJson = await connRes.json();
       const folderJson = await folderRes.json();
       setConnections(connJson.data || []);
       setFolders(folderJson.data || []);
+      setDatasets(dsList);
     } catch {}
     resetWizardState();
 
     if (!forceSourceStep && selected?.boundSourceId && selected?.boundSourceType) {
-      const srcType = selected.boundSourceType as "database" | "file";
-      setSourceType(srcType);
+      const srcType = selected.boundSourceType as "database" | "file" | "prepared_dataset";
+      if (srcType === "prepared_dataset") {
+        setSourceType("dataset");
+        const ds = datasets.find(d => d.id === selected.boundSourceId);
+        if (ds) {
+          setSelectedDataset(ds);
+          const cols: SchemaColumn[] = ds.schema.map(s => ({ name: s.name, type: s.type }));
+          setFileSchema({ columns: cols, rows: ds.sampleRows as any[] });
+          setFieldMappings(cols.map(c => ({ originalName: c.name, displayName: c.name, fieldType: isNumericType(c.type) ? "measure" : "dimension", hidden: false })));
+          setStep(2);
+        }
+      } else {
+        setSourceType(srcType);
+      }
       if (srcType === "database") {
         setSelectedConn(selected.boundSourceId);
         try {
@@ -475,7 +495,7 @@ export default function VisualizePage() {
             setStep(2);
           }
         } catch {}
-      } else {
+      } else if (srcType === "file") {
         setSelectedFile(selected.boundSourceId);
         try {
           const res = await fetch(`/api/files?type=content&fileId=${selected.boundSourceId}`);
@@ -728,6 +748,8 @@ export default function VisualizePage() {
     const base =
       sourceType === "database"
         ? tableSchema.columns
+        : sourceType === "dataset"
+        ? (selectedDataset?.schema.map(s => ({ name: s.name, type: s.type })) || [])
         : fileSchema?.columns || [];
     const mapped = base
       .filter((c) => {
@@ -751,7 +773,7 @@ export default function VisualizePage() {
       type: cf.fieldType === "measure" ? "number" : "text",
     }));
     return [...mapped, ...calcCols];
-  }, [sourceType, tableSchema.columns, fileSchema?.columns, fieldMappings, calculatedFields]);
+  }, [sourceType, tableSchema.columns, fileSchema?.columns, selectedDataset, fieldMappings, calculatedFields]);
 
   // Safely evaluate a simple math expression against a row (for file sources)
   function evalCalcField(expr: string, row: Record<string, any>): any {
@@ -813,6 +835,17 @@ export default function VisualizePage() {
           dbType: conn?.type,
           connectionId: selectedConn,
           userId: user?.uid,
+          preferredModel: visualizeModel,
+        });
+      } else if (sourceType === "dataset" && selectedDataset) {
+        const effectiveRows = applyPreFilters(getEffectiveRows(selectedDataset.sampleRows as any[]));
+        result = await generateChart({
+          sourceType: "file",
+          tableName: selectedDataset.name,
+          columns: effectiveCols,
+          sampleRows: effectiveRows.slice(0, 5),
+          allRows: effectiveRows,
+          prompt: enhancedPrompt,
           preferredModel: visualizeModel,
         });
       } else {
@@ -886,6 +919,13 @@ export default function VisualizePage() {
         }
       } else {
         // ── ADD: POST new widget ──
+        const dsrcType = sourceType === "dataset" ? "prepared_dataset" : sourceType;
+        const dsrcId = sourceType === "database" ? selectedConn : sourceType === "dataset" ? (selectedDataset?.id || "") : selectedFile;
+        const dsrcName = sourceType === "database"
+          ? (joinSQL ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}` : `${conn?.name} / ${selectedTable}`)
+          : sourceType === "dataset"
+          ? (selectedDataset?.name || "")
+          : (file?.name || "");
         const res = await fetch(`/api/dashboards/${selected.id}/widgets`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -893,15 +933,10 @@ export default function VisualizePage() {
             title: previewTitle,
             chartType: preview.chartType,
             chartConfig: { ...preview, title: previewTitle },
-            dataSourceType: sourceType,
-            dataSourceId: sourceType === "database" ? selectedConn : selectedFile,
-            dataSourceName:
-              sourceType === "database"
-                ? joinSQL
-                  ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}`
-                  : `${conn?.name} / ${selectedTable}`
-                : file?.name,
-            dataQuery: joinSQL ?? preview.sql,
+            dataSourceType: dsrcType,
+            dataSourceId: dsrcId,
+            dataSourceName: dsrcName,
+            dataQuery: sourceType === "dataset" ? null : (joinSQL ?? preview.sql),
             prompt: buildMode === "ai" ? prompt : "",
             gridW: 1,
           }),
@@ -919,25 +954,16 @@ export default function VisualizePage() {
           toast({ title: "Chart added", description: `"${previewTitle}" added.` });
           setWizardOpen(false);
           // Auto-bind data source to dashboard on first chart
-          if (!selected.boundSourceId) {
-            const bindType = sourceType;
-            const bindId = sourceType === "database" ? selectedConn : selectedFile;
-            const bindName = sourceType === "database"
-              ? (joinSQL
-                  ? `${conn?.name} / ${selectedTable} ⋈ ${joinConfig.table2}`
-                  : `${conn?.name} / ${selectedTable}`)
-              : (file?.name || "");
-            if (bindId) {
-              try {
-                await fetch(`/api/dashboards/${selected.id}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName }),
-                });
-                setSelected((prev) => prev ? { ...prev, boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName } : prev);
-                setDashboards((prev) => prev.map((d) => d.id === selected.id ? { ...d, boundSourceType: bindType, boundSourceId: bindId, boundSourceName: bindName } : d));
-              } catch {}
-            }
+          if (!selected.boundSourceId && dsrcId) {
+            try {
+              await fetch(`/api/dashboards/${selected.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ boundSourceType: dsrcType, boundSourceId: dsrcId, boundSourceName: dsrcName }),
+              });
+              setSelected((prev) => prev ? { ...prev, boundSourceType: dsrcType as any, boundSourceId: dsrcId, boundSourceName: dsrcName } : prev);
+              setDashboards((prev) => prev.map((d) => d.id === selected.id ? { ...d, boundSourceType: dsrcType as any, boundSourceId: dsrcId, boundSourceName: dsrcName } : d));
+            } catch {}
           }
         } else {
           toast({ title: "Save failed", description: json.error, variant: "destructive" });
@@ -1154,7 +1180,9 @@ export default function VisualizePage() {
 
   // ── Null count for a column in sample data ───────────────────────────────
   function getNullCount(colName: string): number {
-    const rows = sourceType === "database" ? tableSchema.sampleRows : (fileSchema?.rows || []);
+    const rows = sourceType === "database" ? tableSchema.sampleRows
+      : sourceType === "dataset" ? (selectedDataset?.sampleRows as any[] || [])
+      : (fileSchema?.rows || []);
     return rows.filter((r) => r[colName] == null || String(r[colName]).trim() === "").length;
   }
 
@@ -1223,8 +1251,8 @@ export default function VisualizePage() {
   const canProceed = () => {
     if (step === 0) return true;
     if (step === 1) {
-      if (sourceType === "database")
-        return !!selectedTable && tableSchema.columns.length > 0;
+      if (sourceType === "database") return !!selectedTable && tableSchema.columns.length > 0;
+      if (sourceType === "dataset") return !!selectedDataset;
       return !!selectedFile && !!fileSchema;
     }
     if (step === 2) return true; // Prepare Data — always skippable
@@ -1482,6 +1510,8 @@ export default function VisualizePage() {
                     <Badge variant="outline" className="text-[9px] gap-1 h-4 font-normal py-0">
                       {selected.boundSourceType === "database"
                         ? <Database className="size-2.5" />
+                        : selected.boundSourceType === "prepared_dataset"
+                        ? <Layers className="size-2.5" />
                         : <FileText className="size-2.5" />}
                       <span className="max-w-[140px] truncate">{selected.boundSourceName}</span>
                     </Badge>
@@ -2348,30 +2378,26 @@ export default function VisualizePage() {
 
               {/* ── Step 0: Source type ── */}
               {step === 0 && (
-                <div className="grid grid-cols-2 gap-3 py-2">
-                  {(["database", "file"] as const).map((type) => (
+                <div className="grid grid-cols-1 gap-3 py-2">
+                  {([
+                    { type: "database", icon: Database, label: "Database", desc: "Query a connected database table" },
+                    { type: "file", icon: FolderOpen, label: "Files", desc: "Visualize an uploaded CSV or JSON file" },
+                    { type: "dataset", icon: Layers, label: "Prepared Dataset", desc: `Use a cleaned dataset from Data Prep${datasets.length ? ` · ${datasets.length} available` : " · go to Data Prep to create one"}` },
+                  ] as const).map(({ type, icon: Icon, label, desc }) => (
                     <button
                       key={type}
                       onClick={() => setSourceType(type)}
-                      className={`p-5 rounded-xl border-2 text-left transition-all ${
+                      className={`p-4 rounded-xl border-2 text-left transition-all flex items-start gap-4 ${
                         sourceType === type
                           ? "border-accent bg-accent/10"
                           : "border-border hover:border-accent/50"
                       }`}
                     >
-                      {type === "database" ? (
-                        <Database className="size-7 mb-2 text-accent" />
-                      ) : (
-                        <FolderOpen className="size-7 mb-2 text-accent" />
-                      )}
-                      <p className="font-semibold text-sm">
-                        {type === "database" ? "Database" : "Files"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {type === "database"
-                          ? "Query a connected database table"
-                          : "Visualize an uploaded CSV or JSON file"}
-                      </p>
+                      <Icon className="size-6 mt-0.5 text-accent shrink-0" />
+                      <div>
+                        <p className="font-semibold text-sm">{label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -2972,6 +2998,69 @@ export default function VisualizePage() {
                 </div>
               )}
 
+              {/* ── Step 1: Prepared Dataset picker ── */}
+              {step === 1 && sourceType === "dataset" && (
+                <div className="space-y-3">
+                  {datasetsLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+                      <Loader2 className="size-3.5 animate-spin" /> Loading datasets…
+                    </div>
+                  ) : datasets.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground space-y-2">
+                      <FolderOutput className="size-8 mx-auto opacity-20" />
+                      <p className="text-sm font-medium">No prepared datasets yet</p>
+                      <p className="text-xs opacity-70">
+                        Go to <strong>Data Prep</strong> in the sidebar to create and run a flow,
+                        then come back here to use the output.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Select a prepared dataset</p>
+                      {datasets.map(ds => (
+                        <button
+                          key={ds.id}
+                          onClick={() => {
+                            setSelectedDataset(ds);
+                            const cols: SchemaColumn[] = ds.schema.map(s => ({ name: s.name, type: s.type }));
+                            setFileSchema({ columns: cols, rows: ds.sampleRows as any[] });
+                            setFieldMappings(cols.map(c => ({
+                              originalName: c.name, displayName: c.name,
+                              fieldType: isNumericType(c.type) ? "measure" : "dimension", hidden: false,
+                            })));
+                          }}
+                          className={`w-full p-3 rounded-xl border-2 text-left transition-all ${
+                            selectedDataset?.id === ds.id ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold truncate">{ds.name}</p>
+                              {ds.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{ds.description}</p>}
+                            </div>
+                            <div className="flex gap-1.5 shrink-0">
+                              <Badge variant="outline" className="text-[9px]">{ds.rowCount.toLocaleString()} rows</Badge>
+                              <Badge variant="outline" className="text-[9px]">{ds.schema.length} cols</Badge>
+                            </div>
+                          </div>
+                          {selectedDataset?.id === ds.id && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {ds.schema.slice(0, 6).map(col => (
+                                <Badge key={col.name} variant="outline" className="text-[9px] font-mono">
+                                  <FieldIcon type={col.type} />
+                                  <span className="ml-1">{col.name}</span>
+                                </Badge>
+                              ))}
+                              {ds.schema.length > 6 && <Badge variant="outline" className="text-[9px] text-muted-foreground">+{ds.schema.length - 6} more</Badge>}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── Step 2: Prepare Data ── */}
               {step === 2 && (
                 <div className="space-y-5">
@@ -2979,6 +3068,8 @@ export default function VisualizePage() {
                   <div className="rounded-xl border border-border/50 bg-secondary/10 p-3 flex items-center gap-3">
                     {sourceType === "database" ? (
                       <Database className="size-4 text-accent shrink-0" />
+                    ) : sourceType === "dataset" ? (
+                      <Layers className="size-4 text-accent shrink-0" />
                     ) : (
                       <FileText className="size-4 text-accent shrink-0" />
                     )}
@@ -2988,12 +3079,16 @@ export default function VisualizePage() {
                           ? joinPreviewData
                             ? `${selectedTable} ⋈ ${joinConfig.table2}`
                             : selectedTable
+                          : sourceType === "dataset"
+                          ? selectedDataset?.name
                           : folderFiles.find((f) => f.id === selectedFile)?.name}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
                         {fieldMappings.filter((f) => !f.hidden).length} visible fields ·{" "}
                         {sourceType === "database"
                           ? `${tableSchema.sampleRows.length} sample rows`
+                          : sourceType === "dataset"
+                          ? `${selectedDataset?.rowCount.toLocaleString() ?? 0} rows`
                           : `${fileSchema?.rows.length ?? 0} rows`}
                       </p>
                     </div>
@@ -3458,12 +3553,16 @@ export default function VisualizePage() {
                       rows={
                         sourceType === "database"
                           ? tableSchema.sampleRows
+                          : sourceType === "dataset"
+                          ? (selectedDataset?.sampleRows as any[] || [])
                           : getEffectiveRows(fileSchema?.rows || [])
                       }
-                      sourceType={sourceType}
+                      sourceType={sourceType === "dataset" ? "file" : sourceType}
                       connectionId={selectedConn || undefined}
                       tableName={
-                        joinPreviewData
+                        sourceType === "dataset"
+                          ? (selectedDataset?.name || "")
+                          : joinPreviewData
                           ? `(${buildJoinSQL(selectedTable, joinTable2Schema, joinConfig)}) AS jd`
                           : selectedTable ||
                             folderFiles.find((f) => f.id === selectedFile)?.name ||

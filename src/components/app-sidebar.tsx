@@ -11,6 +11,7 @@ import {
   Hexagon,
   Database,
   BarChart2,
+  Layers,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ const navigation = [
   { name: "Agents", href: "/agents", icon: Users },
   { name: "Skills", href: "/skills", icon: Zap },
   { name: "Databases", href: "/databases", icon: Database },
+  { name: "Data Prep", href: "/data-prep", icon: Layers },
   { name: "Visualize", href: "/visualize", icon: BarChart2 },
   { name: "Chat", href: "/chat", icon: MessageSquare },
   { name: "Settings", href: "/settings", icon: Settings },
