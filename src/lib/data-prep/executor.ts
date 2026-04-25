@@ -1,4 +1,5 @@
-import { executeDbQuery } from '@/lib/db-connector';
+import { executeDbQuery, ANALYTICS_MAX_ROWS } from '@/lib/db-connector';
+import { parseFileContent, fetchFileRows } from '@/lib/file-utils';
 import { prisma } from '@/lib/prisma';
 import type {
   PrepStep, StepPreviewResult, ColumnSchema, SourceConfig,
@@ -7,47 +8,7 @@ import type {
 
 const MAX_SOURCE_ROWS = 5000;
 
-// ── File parsing ──────────────────────────────────────────────────────────────
-
-function parseFileContent(content: string, fileName: string): Record<string, unknown>[] {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  if (ext === 'json') {
-    try {
-      const parsed = JSON.parse(content);
-      const arr = Array.isArray(parsed) ? parsed : (parsed.data && Array.isArray(parsed.data) ? parsed.data : []);
-      return arr;
-    } catch { return []; }
-  }
-  const delim = ext === 'tsv' ? '\t' : ',';
-  const lines = content.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
-    const vals = line.split(delim);
-    const obj: Record<string, unknown> = {};
-    headers.forEach((h, i) => {
-      const raw = (vals[i] ?? '').trim().replace(/^"|"$/g, '');
-      obj[h] = isNaN(Number(raw)) || raw === '' ? raw : Number(raw);
-    });
-    return obj;
-  });
-}
-
-async function fetchFileRows(fileId: string, userId: string): Promise<Record<string, unknown>[]> {
-  const file = await (prisma as any).fileRecord.findFirst({ where: { id: fileId, userId } });
-  if (!file) throw new Error('File not found or not accessible');
-  let content: string = file.content || '';
-  if (!content && file.totalChunks > 0) {
-    const chunks = await (prisma as any).fileChunk.findMany({
-      where: { fileId },
-      orderBy: { idx: 'asc' },
-      select: { content: true },
-    });
-    content = chunks.map((c: any) => c.content).join('');
-  }
-  if (!content) return [];
-  return parseFileContent(content, file.name);
-}
+// ── Source fetching ───────────────────────────────────────────────────────────
 
 async function fetchSourceRows(cfg: SourceConfig, userId: string): Promise<Record<string, unknown>[]> {
   const kind = cfg.sourceKind ?? 'database';
@@ -56,7 +17,7 @@ async function fetchSourceRows(cfg: SourceConfig, userId: string): Promise<Recor
     return fetchFileRows(cfg.fileId, userId);
   }
   if (!cfg.connectionId || !cfg.sql) throw new Error('Database source requires connectionId and sql');
-  const result = await executeDbQuery(cfg.connectionId, userId, cfg.sql);
+  const result = await executeDbQuery(cfg.connectionId, userId, cfg.sql, MAX_SOURCE_ROWS);
   return result.rows as Record<string, unknown>[];
 }
 
@@ -96,17 +57,17 @@ function applyFilter(
       const cell = row[column];
       let match: boolean;
       switch (operator) {
-        case '=': match = String(cell ?? '') === value; break;
-        case '!=': match = String(cell ?? '') !== value; break;
-        case '>': match = Number(cell) > Number(value); break;
-        case '<': match = Number(cell) < Number(value); break;
-        case '>=': match = Number(cell) >= Number(value); break;
-        case '<=': match = Number(cell) <= Number(value); break;
-        case 'contains': match = String(cell ?? '').toLowerCase().includes(value.toLowerCase()); break;
-        case 'not_contains': match = !String(cell ?? '').toLowerCase().includes(value.toLowerCase()); break;
-        case 'is_null': match = cell === null || cell === undefined || cell === ''; break;
+        case '=':           match = String(cell ?? '') === value; break;
+        case '!=':          match = String(cell ?? '') !== value; break;
+        case '>':           match = Number(cell) > Number(value); break;
+        case '<':           match = Number(cell) < Number(value); break;
+        case '>=':          match = Number(cell) >= Number(value); break;
+        case '<=':          match = Number(cell) <= Number(value); break;
+        case 'contains':    match = String(cell ?? '').toLowerCase().includes(value.toLowerCase()); break;
+        case 'not_contains':match = !String(cell ?? '').toLowerCase().includes(value.toLowerCase()); break;
+        case 'is_null':     match = cell === null || cell === undefined || cell === ''; break;
         case 'is_not_null': match = cell !== null && cell !== undefined && cell !== ''; break;
-        default: match = true;
+        default:            match = true;
       }
       result = i === 0 ? match : logicOp === 'OR' ? result || match : result && match;
     }
@@ -128,10 +89,10 @@ function applyRename(
       let newVal: unknown = val;
       if (op?.newType) {
         switch (op.newType) {
-          case 'number': newVal = val !== null && val !== '' ? Number(val) : null; break;
-          case 'string': newVal = val === null ? null : String(val); break;
+          case 'number':  newVal = val !== null && val !== '' ? Number(val) : null; break;
+          case 'string':  newVal = val === null ? null : String(val); break;
           case 'boolean': newVal = Boolean(val); break;
-          case 'date': newVal = val ? new Date(String(val)).toISOString() : null; break;
+          case 'date':    newVal = val ? new Date(String(val)).toISOString() : null; break;
         }
       }
       out[newKey] = newVal;
@@ -159,18 +120,22 @@ function applyAggregate(
       const vals = bucket.map(r => r[agg.column]);
       const nums = vals.map(v => Number(v ?? 0));
       switch (agg.func) {
-        case 'count': out[agg.alias] = bucket.length; break;
+        case 'count':          out[agg.alias] = bucket.length; break;
         case 'count_distinct': out[agg.alias] = new Set(vals.map(String)).size; break;
-        case 'sum': out[agg.alias] = nums.reduce((a, b) => a + b, 0); break;
-        case 'avg': out[agg.alias] = nums.reduce((a, b) => a + b, 0) / nums.length; break;
-        case 'min': out[agg.alias] = Math.min(...nums); break;
-        case 'max': out[agg.alias] = Math.max(...nums); break;
+        case 'sum':            out[agg.alias] = nums.reduce((a, b) => a + b, 0); break;
+        case 'avg':            out[agg.alias] = nums.reduce((a, b) => a + b, 0) / nums.length; break;
+        case 'min':            out[agg.alias] = nums.reduce((a, b) => a < b ? a : b, Infinity); break;
+        case 'max':            out[agg.alias] = nums.reduce((a, b) => a > b ? a : b, -Infinity); break;
       }
     }
     return out;
   });
 }
 
+/**
+ * Hash join — O(n + m) instead of the prior O(n × m) nested loop.
+ * Builds a hash index on the right side, then probes with each left row.
+ */
 function applyJoin(
   left: Record<string, unknown>[],
   right: Record<string, unknown>[],
@@ -178,15 +143,22 @@ function applyJoin(
   conditions: JoinCondition[],
 ): Record<string, unknown>[] {
   const result: Record<string, unknown>[] = [];
+
+  // Build hash index on right — O(m)
+  const rightIndex = new Map<string, number[]>();
+  for (let ri = 0; ri < right.length; ri++) {
+    const key = conditions.map(c => String(right[ri][c.rightCol] ?? '')).join('\x00');
+    const bucket = rightIndex.get(key);
+    if (bucket) bucket.push(ri);
+    else rightIndex.set(key, [ri]);
+  }
+
   const rightUsed = new Set<number>();
 
+  // Probe — O(n)
   for (const leftRow of left) {
-    const matches: number[] = [];
-    for (let ri = 0; ri < right.length; ri++) {
-      if (conditions.every(c => String(leftRow[c.leftCol] ?? '') === String(right[ri][c.rightCol] ?? ''))) {
-        matches.push(ri);
-      }
-    }
+    const key = conditions.map(c => String(leftRow[c.leftCol] ?? '')).join('\x00');
+    const matches = rightIndex.get(key) ?? [];
     if (matches.length) {
       for (const ri of matches) {
         rightUsed.add(ri);
@@ -200,6 +172,7 @@ function applyJoin(
       result.push({ ...leftRow });
     }
   }
+
   if (joinType === 'right' || joinType === 'full') {
     for (let ri = 0; ri < right.length; ri++) {
       if (!rightUsed.has(ri)) result.push({ ...right[ri] });
@@ -222,6 +195,17 @@ function applyUnion(
     seen.add(key);
     return true;
   });
+}
+
+// ── Right-side source fetch for join/union ────────────────────────────────────
+
+async function fetchRightSource(
+  connectionId: string,
+  sql: string,
+  userId: string,
+): Promise<Record<string, unknown>[]> {
+  const rr = await executeDbQuery(connectionId, userId, sql, MAX_SOURCE_ROWS);
+  return (rr.rows as Record<string, unknown>[]).slice(0, MAX_SOURCE_ROWS);
 }
 
 // ── Main executor ─────────────────────────────────────────────────────────────
@@ -261,15 +245,13 @@ export async function executeFlow(
           break;
         }
         case 'join': {
-          const rr = await executeDbQuery(config.rightConnectionId, userId, config.rightSql);
-          const rightRows = (rr.rows as Record<string, unknown>[]).slice(0, MAX_SOURCE_ROWS);
+          const rightRows = await fetchRightSource(config.rightConnectionId, config.rightSql, userId);
           rows = applyJoin(rows, rightRows, config.joinType, config.conditions);
           schema = deriveSchema(rows);
           break;
         }
         case 'union': {
-          const rr = await executeDbQuery(config.rightConnectionId, userId, config.rightSql);
-          const rightRows = (rr.rows as Record<string, unknown>[]).slice(0, MAX_SOURCE_ROWS);
+          const rightRows = await fetchRightSource(config.rightConnectionId, config.rightSql, userId);
           rows = applyUnion(rows, rightRows, config.all);
           schema = deriveSchema(rows);
           break;

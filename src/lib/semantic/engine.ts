@@ -4,7 +4,8 @@
  * Returns aggregated, typed rows ready for chart rendering.
  */
 
-import { executeDbQuery } from '@/lib/db-connector';
+import { executeDbQuery, ANALYTICS_MAX_ROWS } from '@/lib/db-connector';
+import { parseFileContent, fetchFileRows } from '@/lib/file-utils';
 import { prisma } from '@/lib/prisma';
 import type {
   SemanticModel, SemanticQuery, QueryResult,
@@ -12,7 +13,6 @@ import type {
 } from './types';
 
 const DEFAULT_ROW_LIMIT = 5000;
-const MAX_ROW_LIMIT = 50000;
 
 // ── Field resolution ──────────────────────────────────────────────────────────
 
@@ -25,14 +25,17 @@ function resolveField(model: SemanticModel, name: string): FieldDef | CalcField 
 function evalCalc(expr: string, row: Record<string, unknown>): unknown {
   try {
     const subbed = expr.replace(/\b([a-zA-Z_]\w*)\b/g, m =>
-      m in row ? String(row[m] ?? 0) : m
+      m in row ? String(row[m] ?? 0) : m,
     );
     if (!/^[\d\s+\-*/.(),]+$/.test(subbed)) return null;
     return Function(`"use strict"; return (${subbed})`)();
   } catch { return null; }
 }
 
-function applyCalcs(rows: Record<string, unknown>[], calcs: CalcField[]): Record<string, unknown>[] {
+function applyCalcs(
+  rows: Record<string, unknown>[],
+  calcs: CalcField[],
+): Record<string, unknown>[] {
   if (!calcs.length) return rows;
   return rows.map(r => {
     const out = { ...r };
@@ -51,69 +54,87 @@ function binDate(value: unknown, unit: string): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   switch (unit) {
-    case 'year': return `${y}`;
+    case 'year':    return `${y}`;
     case 'quarter': return `${y}-Q${Math.floor(d.getMonth() / 3) + 1}`;
-    case 'month': return `${y}-${m}`;
+    case 'month':   return `${y}-${m}`;
     case 'week': {
       const onejan = new Date(y, 0, 1);
-      const week = Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
+      const week = Math.ceil(
+        (((d.getTime() - onejan.getTime()) / 86_400_000) + onejan.getDay() + 1) / 7,
+      );
       return `${y}-W${String(week).padStart(2, '0')}`;
     }
-    case 'day': return `${y}-${m}-${day}`;
     default: return `${y}-${m}-${day}`;
   }
 }
 
-// ── Filter application (in-memory) ────────────────────────────────────────────
+// ── Filter application ────────────────────────────────────────────────────────
 
-function applyFilters(rows: Record<string, unknown>[], filters: QueryFilter[]): Record<string, unknown>[] {
+function applyFilters(
+  rows: Record<string, unknown>[],
+  filters: QueryFilter[],
+): Record<string, unknown>[] {
   if (!filters.length) return rows;
   return rows.filter(row => filters.every(f => {
     const v = row[f.field];
     switch (f.op) {
-      case '=': return String(v) === String(f.value);
-      case '!=': return String(v) !== String(f.value);
-      case '>': return Number(v) > Number(f.value);
-      case '<': return Number(v) < Number(f.value);
-      case '>=': return Number(v) >= Number(f.value);
-      case '<=': return Number(v) <= Number(f.value);
-      case 'in': return (f.values ?? []).map(String).includes(String(v));
-      case 'not_in': return !(f.values ?? []).map(String).includes(String(v));
-      case 'contains': return String(v ?? '').toLowerCase().includes(String(f.value ?? '').toLowerCase());
-      case 'between': return Number(v) >= Number(f.min ?? -Infinity) && Number(v) <= Number(f.max ?? Infinity);
-      case 'is_null': return v === null || v === undefined || v === '';
-      case 'is_not_null': return v !== null && v !== undefined && v !== '';
-      default: return true;
+      case '=':          return String(v) === String(f.value);
+      case '!=':         return String(v) !== String(f.value);
+      case '>':          return Number(v) > Number(f.value);
+      case '<':          return Number(v) < Number(f.value);
+      case '>=':         return Number(v) >= Number(f.value);
+      case '<=':         return Number(v) <= Number(f.value);
+      case 'in':         return (f.values ?? []).map(String).includes(String(v));
+      case 'not_in':     return !(f.values ?? []).map(String).includes(String(v));
+      case 'contains':   return String(v ?? '').toLowerCase().includes(String(f.value ?? '').toLowerCase());
+      case 'between':    return Number(v) >= Number(f.min ?? -Infinity) && Number(v) <= Number(f.max ?? Infinity);
+      case 'is_null':    return v === null || v === undefined || v === '';
+      case 'is_not_null':return v !== null && v !== undefined && v !== '';
+      default:           return true;
     }
   }));
 }
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
+/** Safe min/max using reduce — avoids call-stack overflow from spread on large arrays. */
+function safeMin(nums: number[]): number | null {
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => (a < b ? a : b));
+}
+function safeMax(nums: number[]): number | null {
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => (a > b ? a : b));
+}
+
 function aggregate(values: unknown[], func: AggFunc): unknown {
   const nums = values.map(v => Number(v ?? 0)).filter(n => !isNaN(n));
   switch (func) {
-    case 'sum': return nums.reduce((a, b) => a + b, 0);
-    case 'avg': return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
-    case 'count': return values.length;
+    case 'sum':          return nums.reduce((a, b) => a + b, 0);
+    case 'avg':          return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    case 'count':        return values.length;
     case 'count_distinct': return new Set(values.map(String)).size;
-    case 'min': return nums.length ? Math.min(...nums) : null;
-    case 'max': return nums.length ? Math.max(...nums) : null;
+    case 'min':          return safeMin(nums);
+    case 'max':          return safeMax(nums);
     case 'none':
-    default: return values[0] ?? null;
+    default:             return values[0] ?? null;
   }
 }
 
 // ── Apply binning to dimension values ─────────────────────────────────────────
 
-function applyBinning(rows: Record<string, unknown>[], dim: QueryDimension): Record<string, unknown>[] {
+function applyBinning(
+  rows: Record<string, unknown>[],
+  dim: QueryDimension,
+): Record<string, unknown>[] {
   if (dim.dateUnit) {
     return rows.map(r => ({ ...r, [dim.field]: binDate(r[dim.field], dim.dateUnit!) }));
   }
-  if (dim.binning && dim.binning.type === 'width') {
+  if (dim.binning?.type === 'width') {
     const nums = rows.map(r => Number(r[dim.field])).filter(n => !isNaN(n));
     if (!nums.length) return rows;
-    const min = Math.min(...nums), max = Math.max(...nums);
+    const min = safeMin(nums)!;
+    const max = safeMax(nums)!;
     const n = dim.binning.n || 10;
     const w = (max - min) / n || 1;
     return rows.map(r => {
@@ -137,11 +158,9 @@ function groupAndAggregate(
 ): Record<string, unknown>[] {
   const dimFields = dims.map(d => d.field);
 
-  // Apply binning per dimension
   let processed = rows;
   for (const d of dims) processed = applyBinning(processed, d);
 
-  // No measures → just distinct dimensions
   if (!measures.length) {
     const seen = new Set<string>();
     const out: Record<string, unknown>[] = [];
@@ -157,10 +176,11 @@ function groupAndAggregate(
     return out;
   }
 
-  // Group by dimensions
   const groups = new Map<string, Record<string, unknown>[]>();
   for (const row of processed) {
-    const key = dimFields.length ? dimFields.map(f => String(row[f] ?? '')).join('\x00') : '__all__';
+    const key = dimFields.length
+      ? dimFields.map(f => String(row[f] ?? '')).join('\x00')
+      : '__all__';
     const bucket = groups.get(key);
     if (bucket) bucket.push(row);
     else groups.set(key, [row]);
@@ -196,13 +216,11 @@ function applySorting(
       return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
     });
   }
-  // If no dim sort and a measure exists, sort by first measure desc by default
-  if (!dims.some(d => d.sort) && measures.length && rows.length) {
+  if (!dims.some(d => d.sort) && measures.length) {
     const first = measures[0];
     const alias = first.alias || `${first.agg}_${first.field}`;
     rows = [...rows].sort((a, b) => Number(b[alias] ?? 0) - Number(a[alias] ?? 0));
   }
-  // Apply per-dim limit (top-N)
   for (const d of dims) {
     if (d.limit && d.limit > 0) rows = rows.slice(0, d.limit);
   }
@@ -217,53 +235,27 @@ async function fetchSourceRows(
 ): Promise<Record<string, unknown>[]> {
   if (model.sourceType === 'database') {
     const sql = model.sourceSql
-      || (model.sourceTable ? `SELECT * FROM "${model.sourceTable}" LIMIT ${MAX_ROW_LIMIT}` : null);
+      || (model.sourceTable ? `SELECT * FROM "${model.sourceTable}" LIMIT ${ANALYTICS_MAX_ROWS}` : null);
     if (!sql) throw new Error('Database source requires sourceTable or sourceSql');
-    const result = await executeDbQuery(model.sourceId, userId, sql);
+    // Pass ANALYTICS_MAX_ROWS so the connector doesn't cap at the 150-row explorer limit.
+    const result = await executeDbQuery(model.sourceId, userId, sql, ANALYTICS_MAX_ROWS);
     return result.rows as Record<string, unknown>[];
   }
+
   if (model.sourceType === 'prepared_dataset') {
     const ds = await (prisma as any).preparedDataset.findFirst({
       where: { id: model.sourceId, userId },
     });
     if (!ds) throw new Error('Prepared dataset not found');
-    try {
-      return JSON.parse(ds.sampleRows) as Record<string, unknown>[];
-    } catch { return []; }
+    try { return JSON.parse(ds.sampleRows) as Record<string, unknown>[]; }
+    catch { return []; }
   }
-  if (model.sourceType === 'file') {
-    // For files, read and parse content via FileRecord
-    const file = await (prisma as any).fileRecord.findFirst({
-      where: { id: model.sourceId, userId },
-    });
-    if (!file) throw new Error('File not found');
-    const content = file.content || '';
-    return parseFileContent(content, file.name);
-  }
-  throw new Error(`Unknown source type: ${(model as any).sourceType}`);
-}
 
-function parseFileContent(content: string, fileName: string): Record<string, unknown>[] {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  if (ext === 'json') {
-    try {
-      const parsed = JSON.parse(content);
-      return Array.isArray(parsed) ? parsed : (parsed.data || []);
-    } catch { return []; }
+  if (model.sourceType === 'file') {
+    return fetchFileRows(model.sourceId, userId);
   }
-  const delim = ext === 'tsv' ? '\t' : ',';
-  const lines = content.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
-    const vals = line.split(delim);
-    const obj: Record<string, unknown> = {};
-    headers.forEach((h, i) => {
-      const raw = (vals[i] ?? '').trim().replace(/^"|"$/g, '');
-      obj[h] = isNaN(Number(raw)) || raw === '' ? raw : Number(raw);
-    });
-    return obj;
-  });
+
+  throw new Error(`Unknown source type: ${(model as any).sourceType}`);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -276,22 +268,14 @@ export async function executeSemanticQuery(
   const start = Date.now();
   let rows = await fetchSourceRows(model, userId);
   const sourceRowCount = rows.length;
-  const truncated = sourceRowCount >= MAX_ROW_LIMIT;
+  const truncated = sourceRowCount >= ANALYTICS_MAX_ROWS;
 
-  // Apply calculated fields
   rows = applyCalcs(rows, model.calculations);
-
-  // Apply filters
   rows = applyFilters(rows, query.filters);
-
-  // Group + aggregate
   rows = groupAndAggregate(rows, query.dimensions, query.measures);
-
-  // Sort + limit
   rows = applySorting(rows, query.dimensions, query.measures);
   rows = rows.slice(0, query.rowLimit ?? DEFAULT_ROW_LIMIT);
 
-  // Build column metadata
   const columns: QueryResult['columns'] = [];
   for (const d of query.dimensions) {
     const f = resolveField(model, d.field);
@@ -317,10 +301,14 @@ export function detectSchema(sampleRows: Record<string, unknown>[]): FieldDef[] 
   if (!sampleRows.length) return [];
   const cols = Object.keys(sampleRows[0]);
   return cols.map(name => {
-    const values = sampleRows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
-    if (!values.length) return { name, displayName: humanize(name), dataType: 'string' as const, role: 'dimension' as const };
-    const allNum = values.every(v => typeof v === 'number' || (typeof v === 'string' && !isNaN(Number(v))));
-    const allBool = values.every(v => typeof v === 'boolean');
+    const values = sampleRows
+      .map(r => r[name])
+      .filter(v => v !== null && v !== undefined && v !== '');
+    if (!values.length) {
+      return { name, displayName: humanize(name), dataType: 'string' as const, role: 'dimension' as const };
+    }
+    const allNum   = values.every(v => typeof v === 'number' || (typeof v === 'string' && !isNaN(Number(v))));
+    const allBool  = values.every(v => typeof v === 'boolean');
     const dateLike = values.every(v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v));
     let dataType: FieldDef['dataType'] = 'string';
     if (allBool) dataType = 'boolean';

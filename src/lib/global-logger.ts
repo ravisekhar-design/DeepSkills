@@ -1,76 +1,67 @@
 import { prisma } from './prisma';
 
 /**
- * Global override for console methods to capture everything in the Prisma database.
- * This runs only on the server.
+ * Global override for console methods to capture server output in the database.
+ * Development-only — too noisy for production (and the Prisma query log is disabled
+ * there anyway, so there would be nothing useful to capture).
  */
 export function initializeGlobalLogger() {
-    if (typeof window !== 'undefined') return; // Only run on server
-    if (process.env.NODE_ENV === 'production') return; // Dev only — too noisy for production
+  if (typeof window !== 'undefined') return;           // client guard
+  if (process.env.NODE_ENV === 'production') return;   // dev-only
 
-    // Prevent double-initialization in dev mode
-    if ((global as any).__loggerInitialized) return;
-    (global as any).__loggerInitialized = true;
+  if ((global as any).__loggerInitialized) return;
+  (global as any).__loggerInitialized = true;
 
-    const originalLog = console.log;
-    const originalInfo = console.info;
-    const originalWarn = console.warn;
-    const originalError = console.error;
+  const originalLog   = console.log;
+  const originalInfo  = console.info;
+  const originalWarn  = console.warn;
+  const originalError = console.error;
 
-    const writeLog = async (level: string, args: any[]) => {
-        try {
-            const message = args.map(arg => {
-                if (typeof arg === 'object') {
-                    if (arg instanceof Error) {
-                        return arg.stack || arg.message;
-                    }
-                    try {
-                        return JSON.stringify(arg);
-                    } catch {
-                        return String(arg);
-                    }
-                }
-                return String(arg);
-            }).join(' ');
+  // Cap concurrent DB writes to prevent runaway queuing under high log volume.
+  let activeWrites = 0;
+  const MAX_ACTIVE_WRITES = 20;
 
-            // Avoid logging our own Prisma queries for the logs themselves, 
-            // otherwise we'd get an infinite loop!
-            if (message.includes('SystemLog') || message.includes('INSERT INTO "main"."SystemLog"')) {
-                return;
-            }
+  const writeLog = (level: string, args: any[]): void => {
+    if (activeWrites >= MAX_ACTIVE_WRITES) return;
 
-            // Write to database
-            await prisma.systemLog.create({
-                data: {
-                    level,
-                    message: message.substring(0, 5000), // Cap length to prevent DB bloat
-                }
-            });
-        } catch (dbError) {
-            // If DB logging fails, just use original stderr so we don't crash the app
-            originalError('[Logger Failure]', dbError);
+    const message = args
+      .map(arg => {
+        if (arg instanceof Error) return arg.stack || arg.message;
+        if (typeof arg === 'object') {
+          try { return JSON.stringify(arg); } catch { return String(arg); }
         }
-    };
+        return String(arg);
+      })
+      .join(' ');
 
-    console.log = function (...args) {
-        originalLog.apply(console, args);
-        writeLog('info', args);
-    };
+    // Skip log entries that are themselves about the SystemLog table — avoids
+    // a feedback loop where the act of logging spawns another log entry.
+    // Covers both the Prisma model name and raw SQL (PostgreSQL + SQLite).
+    if (
+      message.includes('SystemLog') ||
+      message.includes('"SystemLog"') ||
+      message.includes('systemLog')
+    ) return;
 
-    console.info = function (...args) {
-        originalInfo.apply(console, args);
-        writeLog('info', args);
-    };
+    activeWrites++;
+    prisma.systemLog
+      .create({
+        data: {
+          level,
+          message: message.substring(0, 5000),
+        },
+      })
+      .catch(err => {
+        // Use the captured original so this doesn't re-enter the overridden console.error.
+        originalError('[Logger] DB write failed:', err instanceof Error ? err.message : err);
+      })
+      .finally(() => { activeWrites--; });
+  };
 
-    console.warn = function (...args) {
-        originalWarn.apply(console, args);
-        writeLog('warn', args);
-    };
+  console.log   = (...args) => { originalLog.apply(console, args);   writeLog('info',  args); };
+  console.info  = (...args) => { originalInfo.apply(console, args);  writeLog('info',  args); };
+  console.warn  = (...args) => { originalWarn.apply(console, args);  writeLog('warn',  args); };
+  console.error = (...args) => { originalError.apply(console, args); writeLog('error', args); };
 
-    console.error = function (...args) {
-        originalError.apply(console, args);
-        writeLog('error', args);
-    };
-
-    console.log('[System Logger] Global terminal interception active. All output is now recorded to database.');
+  console.log('[System Logger] Global terminal interception active.');
 }

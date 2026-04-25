@@ -6,7 +6,8 @@
 import { prisma } from '@/lib/prisma';
 import { NotFoundError, ValidationError } from '@/lib/api/errors';
 import { executeSemanticQuery, detectSchema } from '@/lib/semantic/engine';
-import { executeDbQuery } from '@/lib/db-connector';
+import { executeDbQuery, ANALYTICS_MAX_ROWS } from '@/lib/db-connector';
+import { parseFileContent, fetchFileSample } from '@/lib/file-utils';
 import type {
   SemanticModel, SemanticQuery, QueryResult,
   FieldDef, CalcField, Hierarchy, SemanticSourceType,
@@ -68,10 +69,11 @@ export const semanticService = {
     if (!data.name?.trim()) throw new ValidationError('name is required');
     if (!data.sourceType || !data.sourceId) throw new ValidationError('source is required');
 
-    // Auto-detect schema if no fields given
     let fields = data.fields ?? [];
     if (!fields.length) {
-      fields = await this.autoDetectFields(userId, data.sourceType, data.sourceId, data.sourceTable, data.sourceSql);
+      fields = await this.autoDetectFields(
+        userId, data.sourceType, data.sourceId, data.sourceTable, data.sourceSql,
+      );
     }
 
     const row = await (prisma as any).semanticModel.create({
@@ -134,12 +136,13 @@ export const semanticService = {
     sourceSql?: string,
   ): Promise<FieldDef[]> {
     let sampleRows: Record<string, unknown>[] = [];
+
     if (sourceType === 'database') {
       const sql = sourceSql
         || (sourceTable ? `SELECT * FROM "${sourceTable}" LIMIT 100` : null);
       if (!sql) return [];
       try {
-        const result = await executeDbQuery(sourceId, userId, sql);
+        const result = await executeDbQuery(sourceId, userId, sql, 100);
         sampleRows = (result.rows as Record<string, unknown>[]).slice(0, 100);
       } catch { return []; }
     } else if (sourceType === 'prepared_dataset') {
@@ -148,32 +151,12 @@ export const semanticService = {
         try { sampleRows = JSON.parse(ds.sampleRows).slice(0, 100); } catch {}
       }
     } else if (sourceType === 'file') {
-      const file = await (prisma as any).fileRecord.findFirst({ where: { id: sourceId, userId } });
-      if (file?.content) {
-        const ext = (file.name as string).split('.').pop()?.toLowerCase();
-        if (ext === 'json') {
-          try {
-            const parsed = JSON.parse(file.content);
-            sampleRows = (Array.isArray(parsed) ? parsed : (parsed.data || [])).slice(0, 100);
-          } catch {}
-        } else {
-          const delim = ext === 'tsv' ? '\t' : ',';
-          const lines = (file.content as string).split(/\r?\n/).filter(Boolean);
-          if (lines.length >= 2) {
-            const headers = lines[0].split(delim).map((h: string) => h.trim().replace(/^"|"$/g, ''));
-            sampleRows = lines.slice(1, 101).map((line: string) => {
-              const vals = line.split(delim);
-              const obj: Record<string, unknown> = {};
-              headers.forEach((h: string, i: number) => {
-                const raw = (vals[i] ?? '').trim().replace(/^"|"$/g, '');
-                obj[h] = isNaN(Number(raw)) || raw === '' ? raw : Number(raw);
-              });
-              return obj;
-            });
-          }
-        }
-      }
+      // Uses fetchFileSample which handles both inline and chunked storage.
+      try {
+        sampleRows = await fetchFileSample(sourceId, userId, 100);
+      } catch { return []; }
     }
+
     return detectSchema(sampleRows);
   },
 
