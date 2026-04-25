@@ -61,6 +61,8 @@ const TASK_LABELS: Record<string, string> = {
   visualize: 'Visualize',
 };
 
+const CONFIGURED_SENTINEL = '__CONFIGURED__';
+
 function ApiKeyDialog({
   title, description, icon: Icon, fields, savedKeys, onSave,
 }: {
@@ -74,19 +76,31 @@ function ApiKeyDialog({
   const [localValues, setLocalValues] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
 
-  const isConfigured = fields.every(f => !!(savedKeys?.[f.key]));
+  // A field is configured when the backend returned the sentinel (key is saved but never sent to browser)
+  const isConfigured = fields.every(f => savedKeys?.[f.key] === CONFIGURED_SENTINEL);
 
   const handleOpen = (val: boolean) => {
     if (val) {
+      // Always start with empty inputs — user must re-enter to change a key.
+      // The placeholder communicates that a key is already saved.
       const initial: Record<string, string> = {};
-      fields.forEach(f => { initial[f.key as string] = savedKeys?.[f.key] || ''; });
+      fields.forEach(f => { initial[f.key] = ''; });
       setLocalValues(initial);
     }
     setOpen(val);
   };
 
   const handleSave = () => {
-    onSave(localValues);
+    const vals: Record<string, string> = {};
+    fields.forEach(f => {
+      const entered = localValues[f.key] ?? '';
+      // If the user left the field empty and a key was already configured,
+      // send the sentinel so the backend knows to preserve the existing encrypted value.
+      vals[f.key] = !entered && savedKeys?.[f.key] === CONFIGURED_SENTINEL
+        ? CONFIGURED_SENTINEL
+        : entered;
+    });
+    onSave(vals);
     setOpen(false);
   };
 
@@ -116,18 +130,26 @@ function ApiKeyDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
-          {fields.map(f => (
-            <div key={f.id} className="space-y-2">
-              <Label htmlFor={f.id}>{f.label}</Label>
-              <Input
-                id={f.id}
-                type="password"
-                value={localValues[f.key as string] || ''}
-                placeholder={f.placeholder}
-                onChange={(e) => setLocalValues(prev => ({ ...prev, [f.key as string]: e.target.value }))}
-              />
-            </div>
-          ))}
+          {fields.map(f => {
+            const isSaved = savedKeys?.[f.key] === CONFIGURED_SENTINEL;
+            return (
+              <div key={f.id} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={f.id}>{f.label}</Label>
+                  {isSaved && (
+                    <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest">Saved</span>
+                  )}
+                </div>
+                <Input
+                  id={f.id}
+                  type="password"
+                  value={localValues[f.key] || ''}
+                  placeholder={isSaved ? '••••••••  (enter new value to update)' : f.placeholder}
+                  onChange={(e) => setLocalValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                />
+              </div>
+            );
+          })}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
