@@ -30,6 +30,8 @@ model User {
   dashboards          Dashboard[]
   dataPrepFlows       DataPrepFlow[]
   preparedDatasets    PreparedDataset[]
+  semanticModels      SemanticModel[]
+  worksheets          Worksheet[]
 }
 
 model Account {
@@ -225,6 +227,44 @@ model PreparedDataset {
   updatedAt   DateTime     @updatedAt
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   flow        DataPrepFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+}
+
+model SemanticModel {
+  id           String      @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  // Source binding
+  sourceType   String      // 'database' | 'prepared_dataset' | 'file'
+  sourceId     String
+  sourceName   String
+  sourceTable  String?     // optional table name when sourceType=database
+  sourceSql    String?     @db.Text // optional custom SQL when sourceType=database
+  // JSON-encoded
+  fields       String      @db.Text  // FieldDef[]
+  calculations String      @db.Text  // CalcField[]
+  hierarchies  String?     @db.Text  // Hierarchy[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  worksheets   Worksheet[]
+}
+
+model Worksheet {
+  id          String         @id @default(cuid())
+  userId      String
+  modelId     String?
+  name        String
+  description String?
+  // WorksheetConfig — chart type, shelves, marks, options
+  config      String         @db.Text
+  // Cached preview rows (JSON)
+  cachedData  String?        @db.Text
+  cachedAt    DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model       SemanticModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
 }
 
 model LoginOtp {
