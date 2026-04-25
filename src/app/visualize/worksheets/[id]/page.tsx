@@ -104,6 +104,12 @@ export default function WorksheetEditorPage() {
   const worksheetRef = useRef<Worksheet | null>(null);
   worksheetRef.current = worksheet;
 
+  // Concurrency guards — prevent duplicate in-flight executes
+  const executingRef    = useRef(false);  // true while a fetch is in flight
+  const pendingExecRef  = useRef(false);  // config changed while in-flight → re-run after
+  // Track the last config we actually sent to the server to skip redundant PATCHes
+  const savedConfigRef  = useRef<string | null>(null);
+
   // ── Initialize ─────────────────────────────────────────────────────────────
 
   const initialize = useCallback(async () => {
@@ -230,31 +236,53 @@ export default function WorksheetEditorPage() {
   };
 
   // ── Execute query ─────────────────────────────────────────────────────────
-  // Uses worksheetRef so the callback never closes over stale state.
+  // • Reads state via refs — never captures stale closures.
+  // • Mutex: if already in-flight, marks a pending re-run instead of stacking.
+  // • Skips the PATCH when the config hasn't changed since the last save.
 
   const execute = useCallback(async () => {
+    if (executingRef.current) {
+      pendingExecRef.current = true; // re-run once current finishes
+      return;
+    }
+
     const ws = worksheetRef.current;
     if (!ws?.modelId) return;
     const cfg = ws.config;
     const hasFields = cfg.columns.length > 0 || cfg.rows.length > 0;
     if (!hasFields) { setExecutionResult(null); return; }
 
+    executingRef.current   = true;
+    pendingExecRef.current = false;
     setExecuting(true);
+
     try {
-      await worksheetClientService.update(ws.id, { config: cfg });
+      // Only PATCH when the config has actually changed since the last save.
+      const cfgJson = JSON.stringify(cfg);
+      if (savedConfigRef.current !== cfgJson) {
+        await worksheetClientService.update(ws.id, { config: cfg });
+        savedConfigRef.current = cfgJson;
+      }
       const result = await worksheetClientService.execute(ws.id);
       setExecutionResult(result);
     } catch (e: any) {
       setExecutionResult({ error: e?.message || "Query failed" });
     }
+
     setExecuting(false);
-  }, []); // stable — reads state via ref
+    executingRef.current = false;
+
+    // If config changed while we were running, fire one more execute.
+    if (pendingExecRef.current) {
+      pendingExecRef.current = false;
+      execute();
+    }
+  }, []); // stable — all state accessed via refs
 
   // Debounced auto-execute when shelves change
   useEffect(() => {
     if (!worksheet) return;
-    const cfg = worksheet.config;
-    const hasFields = cfg.columns.length > 0 || cfg.rows.length > 0;
+    const hasFields = worksheet.config.columns.length > 0 || worksheet.config.rows.length > 0;
     if (!hasFields) { setExecutionResult(null); return; }
     const timer = setTimeout(execute, 600);
     return () => clearTimeout(timer);
