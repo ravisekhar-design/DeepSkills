@@ -1,10 +1,64 @@
 import { executeDbQuery } from '@/lib/db-connector';
+import { prisma } from '@/lib/prisma';
 import type {
-  PrepStep, StepPreviewResult, ColumnSchema,
+  PrepStep, StepPreviewResult, ColumnSchema, SourceConfig,
   FilterCondition, RenameOp, AggregationOp, JoinCondition,
 } from './types';
 
 const MAX_SOURCE_ROWS = 5000;
+
+// ── File parsing ──────────────────────────────────────────────────────────────
+
+function parseFileContent(content: string, fileName: string): Record<string, unknown>[] {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (ext === 'json') {
+    try {
+      const parsed = JSON.parse(content);
+      const arr = Array.isArray(parsed) ? parsed : (parsed.data && Array.isArray(parsed.data) ? parsed.data : []);
+      return arr;
+    } catch { return []; }
+  }
+  const delim = ext === 'tsv' ? '\t' : ',';
+  const lines = content.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(delim);
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, i) => {
+      const raw = (vals[i] ?? '').trim().replace(/^"|"$/g, '');
+      obj[h] = isNaN(Number(raw)) || raw === '' ? raw : Number(raw);
+    });
+    return obj;
+  });
+}
+
+async function fetchFileRows(fileId: string, userId: string): Promise<Record<string, unknown>[]> {
+  const file = await (prisma as any).fileRecord.findFirst({ where: { id: fileId, userId } });
+  if (!file) throw new Error('File not found or not accessible');
+  let content: string = file.content || '';
+  if (!content && file.totalChunks > 0) {
+    const chunks = await (prisma as any).fileChunk.findMany({
+      where: { fileId },
+      orderBy: { idx: 'asc' },
+      select: { content: true },
+    });
+    content = chunks.map((c: any) => c.content).join('');
+  }
+  if (!content) return [];
+  return parseFileContent(content, file.name);
+}
+
+async function fetchSourceRows(cfg: SourceConfig, userId: string): Promise<Record<string, unknown>[]> {
+  const kind = cfg.sourceKind ?? 'database';
+  if (kind === 'file') {
+    if (!cfg.fileId) throw new Error('File source requires fileId');
+    return fetchFileRows(cfg.fileId, userId);
+  }
+  if (!cfg.connectionId || !cfg.sql) throw new Error('Database source requires connectionId and sql');
+  const result = await executeDbQuery(cfg.connectionId, userId, cfg.sql);
+  return result.rows as Record<string, unknown>[];
+}
 
 // ── Type inference ─────────────────────────────────────────────────────────────
 
@@ -186,8 +240,8 @@ export async function executeFlow(
     try {
       switch (config.type) {
         case 'source': {
-          const result = await executeDbQuery(config.connectionId, userId, config.sql);
-          rows = (result.rows as Record<string, unknown>[]).slice(0, MAX_SOURCE_ROWS);
+          const fetched = await fetchSourceRows(config, userId);
+          rows = fetched.slice(0, MAX_SOURCE_ROWS);
           schema = deriveSchema(rows);
           break;
         }

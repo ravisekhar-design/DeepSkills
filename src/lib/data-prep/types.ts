@@ -43,11 +43,21 @@ export type JoinType = 'inner' | 'left' | 'right' | 'full';
 
 // ── Step Configs ──────────────────────────────────────────────────────────────
 
+export type SourceKind = 'database' | 'file';
+
 export interface SourceConfig {
   type: 'source';
-  connectionId: string;
-  connectionName: string;
-  sql: string;
+  // Defaults to 'database' if missing (backwards compat for older flows).
+  sourceKind?: SourceKind;
+  // Database fields
+  connectionId?: string;
+  connectionName?: string;
+  sql?: string;
+  // File fields
+  fileId?: string;
+  fileName?: string;
+  folderId?: string;
+  folderName?: string;
 }
 
 export interface FilterConfig {

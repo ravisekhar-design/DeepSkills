@@ -5,7 +5,7 @@ import {
   Database, Plus, Trash2, Loader2, Play, Save, Eye, ChevronRight,
   GitMerge, Filter, Type, BarChart2, Layers, X, Check, RefreshCw,
   ArrowRight, Settings2, Hash, Shuffle, Merge, FolderOutput,
-  PencilLine, Search, ChevronDown, AlertCircle, CheckCircle2,
+  PencilLine, Search, ChevronDown, AlertCircle, CheckCircle2, FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,7 @@ const ADD_STEP_OPTIONS: StepType[] = ["filter", "rename", "aggregate", "join", "
 
 function defaultConfig(type: StepType): StepConfig {
   switch (type) {
-    case "source":    return { type, connectionId: "", connectionName: "", sql: "" };
+    case "source":    return { type, sourceKind: "database", connectionId: "", connectionName: "", sql: "" };
     case "filter":    return { type, conditions: [] };
     case "rename":    return { type, operations: [] };
     case "aggregate": return { type, groupBy: [], aggregations: [] };
@@ -59,7 +59,9 @@ function uid() { return Math.random().toString(36).slice(2, 9); }
 
 function stepDesc(cfg: StepConfig): string {
   switch (cfg.type) {
-    case "source":    return cfg.connectionName || "No connection";
+    case "source":    return (cfg.sourceKind ?? "database") === "file"
+      ? (cfg.fileName || "No file")
+      : (cfg.connectionName || "No connection");
     case "filter":    return `${cfg.conditions.length} condition${cfg.conditions.length !== 1 ? "s" : ""}`;
     case "rename":    return `${cfg.operations.length} operation${cfg.operations.length !== 1 ? "s" : ""}`;
     case "aggregate": return cfg.groupBy.length ? `Group by ${cfg.groupBy.join(", ")}` : "No groups";
@@ -100,8 +102,9 @@ export default function DataPrepPage() {
   const [running, setRunning] = useState(false);
   const [bottomTab, setBottomTab] = useState<"configure" | "preview">("configure");
 
-  // ── Connections ────────────────────────────────────────────────────────────
+  // ── Connections + Folders/Files ──────────────────────────────────────────
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  const [folders, setFolders] = useState<{ id: string; name: string; fileCount: number }[]>([]);
 
   const selectedStep = steps.find(s => s.id === selectedStepId) ?? null;
   const selectedStepIndex = steps.findIndex(s => s.id === selectedStepId);
@@ -122,6 +125,7 @@ export default function DataPrepPage() {
 
   useEffect(() => {
     databaseClientService.getAll().then(setConnections).catch(() => {});
+    fetch("/api/files?type=folders").then(r => r.json()).then(j => setFolders(j.data || [])).catch(() => {});
   }, []);
 
   // ── Select flow ────────────────────────────────────────────────────────────
@@ -474,6 +478,7 @@ export default function DataPrepPage() {
                       <StepConfigurator
                         step={selectedStep}
                         connections={connections}
+                        folders={folders}
                         onChange={cfg => updateStep(selectedStep.id, cfg)}
                       />
                     )}
@@ -579,48 +584,90 @@ function AddStepMenu({ onAdd }: { onAdd: (type: StepType) => void }) {
 function StepConfigurator({
   step,
   connections,
+  folders,
   onChange,
 }: {
   step: PrepStep;
   connections: DatabaseConnection[];
+  folders: { id: string; name: string; fileCount: number }[];
   onChange: (cfg: StepConfig) => void;
 }) {
   const cfg = step.config;
 
   if (cfg.type === "source") {
+    const kind = cfg.sourceKind ?? "database";
     return (
       <div className="space-y-3 max-w-2xl">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Source Configuration</p>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Connection</label>
-          <Select
-            value={cfg.connectionId}
-            onValueChange={v => {
-              const conn = connections.find(c => c.id === v);
-              onChange({ ...cfg, connectionId: v, connectionName: conn?.name ?? v });
-            }}
+
+        {/* Source kind tabs */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onChange({ type: "source", sourceKind: "database", connectionId: "", connectionName: "", sql: "" })}
+            className={`flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-colors ${
+              kind === "database" ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
+            }`}
           >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select database connection…" />
-            </SelectTrigger>
-            <SelectContent>
-              {connections.map(c => (
-                <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <Database className="size-4 text-accent shrink-0" />
+            <div>
+              <p className="text-xs font-semibold">Database</p>
+              <p className="text-[10px] text-muted-foreground">Run a SQL query</p>
+            </div>
+          </button>
+          <button
+            onClick={() => onChange({ type: "source", sourceKind: "file", folderId: "", folderName: "", fileId: "", fileName: "" })}
+            className={`flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-colors ${
+              kind === "file" ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"
+            }`}
+          >
+            <FolderOpen className="size-4 text-accent shrink-0" />
+            <div>
+              <p className="text-xs font-semibold">File</p>
+              <p className="text-[10px] text-muted-foreground">CSV / JSON / TSV</p>
+            </div>
+          </button>
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">SQL Query</label>
-          <Textarea
-            value={cfg.sql}
-            onChange={e => onChange({ ...cfg, sql: e.target.value })}
-            placeholder="SELECT * FROM orders LIMIT 5000"
-            rows={6}
-            className="font-mono text-xs resize-none"
-          />
-          <p className="text-[10px] text-muted-foreground">Max 5,000 rows fetched for in-memory transforms</p>
-        </div>
+
+        {kind === "database" && (
+          <>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Connection</label>
+              <Select
+                value={cfg.connectionId || ""}
+                onValueChange={v => {
+                  const conn = connections.find(c => c.id === v);
+                  onChange({ ...cfg, sourceKind: "database", connectionId: v, connectionName: conn?.name ?? v });
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select database connection…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {connections.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">No connections — add one in Databases.</div>
+                  ) : connections.map(c => (
+                    <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">SQL Query</label>
+              <Textarea
+                value={cfg.sql || ""}
+                onChange={e => onChange({ ...cfg, sql: e.target.value })}
+                placeholder="SELECT * FROM orders LIMIT 5000"
+                rows={6}
+                className="font-mono text-xs resize-none"
+              />
+              <p className="text-[10px] text-muted-foreground">Max 5,000 rows fetched for in-memory transforms</p>
+            </div>
+          </>
+        )}
+
+        {kind === "file" && (
+          <FileSourcePicker cfg={cfg} folders={folders} onChange={onChange} />
+        )}
       </div>
     );
   }
@@ -960,6 +1007,88 @@ function StepConfigurator({
   }
 
   return null;
+}
+
+// ── File Source Picker (folder → file) ────────────────────────────────────────
+
+function FileSourcePicker({
+  cfg,
+  folders,
+  onChange,
+}: {
+  cfg: any;
+  folders: { id: string; name: string; fileCount: number }[];
+  onChange: (cfg: StepConfig) => void;
+}) {
+  const [files, setFiles] = useState<{ id: string; name: string; size: number }[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!cfg.folderId) { setFiles([]); return; }
+    setFilesLoading(true);
+    fetch(`/api/files?type=files&folderId=${cfg.folderId}`)
+      .then(r => r.json())
+      .then(j => setFiles((j.data || []).filter((f: any) => /\.(csv|json|tsv)$/i.test(f.name))))
+      .catch(() => setFiles([]))
+      .finally(() => setFilesLoading(false));
+  }, [cfg.folderId]);
+
+  return (
+    <>
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Folder</label>
+        <Select
+          value={cfg.folderId || ""}
+          onValueChange={v => {
+            const f = folders.find(x => x.id === v);
+            onChange({ ...cfg, sourceKind: "file", folderId: v, folderName: f?.name ?? "", fileId: "", fileName: "" });
+          }}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select folder…" /></SelectTrigger>
+          <SelectContent>
+            {folders.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">No folders — upload files in the Files section.</div>
+            ) : folders.map(f => (
+              <SelectItem key={f.id} value={f.id} className="text-xs">
+                {f.name} <span className="text-muted-foreground ml-1">· {f.fileCount} files</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {cfg.folderId && (
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">File (CSV / JSON / TSV)</label>
+          {filesLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="size-3 animate-spin" /> Loading files…
+            </div>
+          ) : files.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No CSV/JSON/TSV files in this folder.</p>
+          ) : (
+            <Select
+              value={cfg.fileId || ""}
+              onValueChange={v => {
+                const f = files.find(x => x.id === v);
+                onChange({ ...cfg, sourceKind: "file", fileId: v, fileName: f?.name ?? "" });
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select file…" /></SelectTrigger>
+              <SelectContent>
+                {files.map(f => (
+                  <SelectItem key={f.id} value={f.id} className="text-xs">
+                    <FolderOutput className="size-3 inline mr-1" /> {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+      <p className="text-[10px] text-muted-foreground">Max 5,000 rows parsed for in-memory transforms</p>
+    </>
+  );
 }
 
 // ── Data Preview Panel ────────────────────────────────────────────────────────

@@ -64,6 +64,7 @@ export default function VisualizeHubPage() {
   const [createModelOpen, setCreateModelOpen] = useState(false);
   const [datasets, setDatasets] = useState<PreparedDataset[]>([]);
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  const [folders, setFolders] = useState<{ id: string; name: string; fileCount: number }[]>([]);
 
   // Create-dashboard dialog state
   const [createDashOpen, setCreateDashOpen] = useState(false);
@@ -174,12 +175,14 @@ export default function VisualizeHubPage() {
   const openCreateModel = async () => {
     setCreateModelOpen(true);
     try {
-      const [ds, conn] = await Promise.all([
+      const [ds, conn, foldersRes] = await Promise.all([
         dataPrepClientService.getAllDatasets().catch(() => []),
         databaseClientService.getAll().catch(() => []),
+        fetch("/api/files?type=folders").then(r => r.json()).then(j => j.data || []).catch(() => []),
       ]);
       setDatasets(ds);
       setConnections(conn);
+      setFolders(foldersRes);
     } catch {}
   };
 
@@ -345,6 +348,7 @@ export default function VisualizeHubPage() {
         onClose={() => setCreateModelOpen(false)}
         datasets={datasets}
         connections={connections}
+        folders={folders}
         onCreated={(m) => { setModels(prev => [m, ...prev]); window.location.href = `/visualize/models/${m.id}`; }}
       />
 
@@ -517,12 +521,13 @@ function DashboardCard({ dashboard, onDelete }: { dashboard: Dashboard; onDelete
 // ── New Model Dialog ──────────────────────────────────────────────────────────
 
 function NewModelDialog({
-  open, onClose, datasets, connections, onCreated,
+  open, onClose, datasets, connections, folders, onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   datasets: PreparedDataset[];
   connections: DatabaseConnection[];
+  folders: { id: string; name: string; fileCount: number }[];
   onCreated: (m: SemanticModel) => void;
 }) {
   const { toast } = useToast();
@@ -533,6 +538,9 @@ function NewModelDialog({
   const [sourceTable, setSourceTable] = useState("");
   const [tables, setTables] = useState<string[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
+  const [folderId, setFolderId] = useState("");
+  const [files, setFiles] = useState<{ id: string; name: string }[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -544,7 +552,20 @@ function NewModelDialog({
       .finally(() => setTablesLoading(false));
   }, [sourceType, sourceId]);
 
-  const reset = () => { setName(""); setDesc(""); setSourceType("prepared_dataset"); setSourceId(""); setSourceTable(""); setTables([]); };
+  useEffect(() => {
+    if (sourceType !== "file" || !folderId) { setFiles([]); return; }
+    setFilesLoading(true);
+    fetch(`/api/files?type=files&folderId=${folderId}`)
+      .then(r => r.json())
+      .then(j => setFiles((j.data || []).filter((f: any) => /\.(csv|json|tsv)$/i.test(f.name))))
+      .finally(() => setFilesLoading(false));
+  }, [sourceType, folderId]);
+
+  const reset = () => {
+    setName(""); setDesc(""); setSourceType("prepared_dataset");
+    setSourceId(""); setSourceTable(""); setTables([]);
+    setFolderId(""); setFiles([]);
+  };
 
   const create = async () => {
     if (!name.trim() || !sourceId) return;
@@ -556,6 +577,10 @@ function NewModelDialog({
         sourceName = `${conn?.name}${sourceTable ? ` / ${sourceTable}` : ""}`;
       } else if (sourceType === "prepared_dataset") {
         sourceName = datasets.find(d => d.id === sourceId)?.name || "";
+      } else if (sourceType === "file") {
+        const folder = folders.find(f => f.id === folderId);
+        const file = files.find(f => f.id === sourceId);
+        sourceName = `${folder?.name ?? ""} / ${file?.name ?? ""}`;
       }
       const model = await semanticClientService.create({
         name: name.trim(),
@@ -592,22 +617,30 @@ function NewModelDialog({
           </div>
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Source Type</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
-                onClick={() => { setSourceType("prepared_dataset"); setSourceId(""); }}
+                onClick={() => { setSourceType("prepared_dataset"); setSourceId(""); setFolderId(""); }}
                 className={`p-3 rounded-lg border-2 text-left transition-colors ${sourceType === "prepared_dataset" ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"}`}
               >
                 <Layers className="size-4 mb-1 text-accent" />
-                <p className="text-xs font-semibold">Prepared Dataset</p>
+                <p className="text-xs font-semibold">Dataset</p>
                 <p className="text-[10px] text-muted-foreground">{datasets.length} available</p>
               </button>
               <button
-                onClick={() => { setSourceType("database"); setSourceId(""); }}
+                onClick={() => { setSourceType("database"); setSourceId(""); setFolderId(""); }}
                 className={`p-3 rounded-lg border-2 text-left transition-colors ${sourceType === "database" ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"}`}
               >
                 <Database className="size-4 mb-1 text-accent" />
                 <p className="text-xs font-semibold">Database</p>
-                <p className="text-[10px] text-muted-foreground">{connections.length} connection{connections.length !== 1 ? "s" : ""}</p>
+                <p className="text-[10px] text-muted-foreground">{connections.length} conn.</p>
+              </button>
+              <button
+                onClick={() => { setSourceType("file"); setSourceId(""); setFolderId(""); }}
+                className={`p-3 rounded-lg border-2 text-left transition-colors ${sourceType === "file" ? "border-accent bg-accent/10" : "border-border hover:border-accent/50"}`}
+              >
+                <FileText className="size-4 mb-1 text-accent" />
+                <p className="text-xs font-semibold">File</p>
+                <p className="text-[10px] text-muted-foreground">{folders.length} folder{folders.length !== 1 ? "s" : ""}</p>
               </button>
             </div>
           </div>
@@ -639,7 +672,9 @@ function NewModelDialog({
                 <Select value={sourceId} onValueChange={setSourceId}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select connection…" /></SelectTrigger>
                   <SelectContent>
-                    {connections.map(c => <SelectItem key={c.id} value={c.id} className="text-sm">{c.name} ({c.type})</SelectItem>)}
+                    {connections.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">No connections — add one in Databases.</div>
+                    ) : connections.map(c => <SelectItem key={c.id} value={c.id} className="text-sm">{c.name} ({c.type})</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -660,9 +695,55 @@ function NewModelDialog({
               )}
             </>
           )}
+          {sourceType === "file" && (
+            <>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Folder</label>
+                {folders.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No folders — upload files in the Files section first.</p>
+                ) : (
+                  <Select value={folderId} onValueChange={v => { setFolderId(v); setSourceId(""); }}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select folder…" /></SelectTrigger>
+                    <SelectContent>
+                      {folders.map(f => (
+                        <SelectItem key={f.id} value={f.id} className="text-sm">
+                          {f.name} <span className="text-muted-foreground ml-1">· {f.fileCount} files</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {folderId && (
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">File (CSV / JSON / TSV)</label>
+                  {filesLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : files.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No CSV/JSON/TSV files in this folder.</p>
+                  ) : (
+                    <Select value={sourceId} onValueChange={setSourceId}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select file…" /></SelectTrigger>
+                      <SelectContent>
+                        {files.map(f => <SelectItem key={f.id} value={f.id} className="text-sm">{f.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+            </>
+          )}
           <div className="flex gap-2 justify-end pt-2">
             <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
-            <Button onClick={create} disabled={!name.trim() || !sourceId || (sourceType === "database" && !sourceTable) || creating}>
+            <Button
+              onClick={create}
+              disabled={
+                !name.trim() || !sourceId
+                || (sourceType === "database" && !sourceTable)
+                || (sourceType === "file" && !folderId)
+                || creating
+              }
+            >
               {creating && <Loader2 className="size-4 animate-spin mr-1.5" />}
               Create
             </Button>
