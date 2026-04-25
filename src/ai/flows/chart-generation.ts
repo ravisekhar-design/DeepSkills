@@ -36,7 +36,9 @@ export type ChartType =
   | 'heatmap'
   | 'histogram'
   | 'gauge'
-  | 'sankey';
+  | 'sankey'
+  | 'kpi'
+  | 'table';
 
 export interface GeneratedChartConfig {
   chartType: ChartType;

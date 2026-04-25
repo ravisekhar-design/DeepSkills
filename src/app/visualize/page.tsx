@@ -13,8 +13,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, Layers, FileText,
-  LayoutDashboard, Table as TableIcon, Search, ArrowRight, Edit3,
-  PencilLine, Sparkles, Hash, FolderOpen, ChevronRight, Box,
+  LayoutDashboard, Search, ArrowRight,
+  Sparkles, Hash, ChevronRight, Box,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -485,7 +485,7 @@ function WorksheetCard({ worksheet, modelName, onDelete }: { worksheet: Workshee
           <span className="truncate">{modelName || "No model"}</span>
         </div>
         <Link href={`/visualize/worksheets/${worksheet.id}`} className="flex items-center justify-between pt-3 mt-2 border-t border-border text-[11px] text-muted-foreground hover:text-accent">
-          <span>Open chart</span><ArrowRight className="size-3" />
+          <span>Edit chart</span><ArrowRight className="size-3" />
         </Link>
       </CardContent>
     </Card>

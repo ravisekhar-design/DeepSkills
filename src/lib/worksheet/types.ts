@@ -10,7 +10,9 @@ export type ChartType =
   | 'bar' | 'horizontal_bar' | 'stacked_bar'
   | 'line' | 'area' | 'pie' | 'donut'
   | 'scatter' | 'bubble' | 'kpi' | 'table'
-  | 'heatmap' | 'treemap';
+  | 'heatmap' | 'treemap'
+  | 'radar' | 'waterfall' | 'funnel' | 'gauge'
+  | 'radial_bar' | 'histogram' | 'composed' | 'sankey';
 
 export interface ShelfPill {
   fieldName: string;        // backing field (or calc field) name

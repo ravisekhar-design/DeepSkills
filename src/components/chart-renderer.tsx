@@ -89,6 +89,58 @@ export function ChartRenderer({ config, height = 260, onDataPointClick }: ChartR
     );
   }
 
+  // ── KPI (single big number) ────────────────────────────────────────────────
+  if (chartType === 'kpi') {
+    const dk = series[0]?.dataKey ?? xKey;
+    const raw = data[0]?.[dk];
+    const val = raw == null ? '—' : typeof raw === 'number'
+      ? raw >= 1_000_000 ? `${(raw / 1_000_000).toFixed(2)}M`
+        : raw >= 1_000 ? `${(raw / 1_000).toFixed(1)}K`
+        : Number.isInteger(raw) ? raw.toString() : raw.toFixed(2)
+      : String(raw);
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2" style={{ minHeight: height }}>
+        <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{series[0]?.name || config.title}</p>
+        <p className="text-6xl font-bold tabular-nums tracking-tight" style={{ color: series[0]?.color || '#6366f1' }}>{val}</p>
+        {data.length > 1 && (
+          <p className="text-xs text-muted-foreground">{data.length.toLocaleString()} records</p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  if (chartType === 'table') {
+    const cols = data.length > 0 ? Object.keys(data[0]) : [];
+    return (
+      <div className="overflow-auto w-full" style={{ maxHeight: height }}>
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-border bg-muted/40">
+              {cols.map(c => (
+                <th key={c} className="text-left px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.slice(0, 500).map((row: any, ri: number) => (
+              <tr key={ri} className="border-b border-border/50 hover:bg-muted/20">
+                {cols.map(c => (
+                  <td key={c} className="px-3 py-1.5 whitespace-nowrap tabular-nums">
+                    {row[c] == null ? <span className="text-muted-foreground/50">—</span> : String(row[c])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.length > 500 && (
+          <p className="text-[10px] text-muted-foreground text-center py-2">Showing 500 of {data.length.toLocaleString()} rows</p>
+        )}
+      </div>
+    );
+  }
+
   // ── Pie / Donut ────────────────────────────────────────────────────────────
   if (chartType === 'pie' || chartType === 'donut') {
     const pieData = data.map((row: any) => ({
