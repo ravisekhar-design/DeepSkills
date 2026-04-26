@@ -6,6 +6,21 @@ import { ChatMistralAI } from "@langchain/mistralai";
 import { injectDynamicKeys } from '@/lib/keys-injector';
 
 /**
+ * Maps decommissioned Groq model IDs to their current replacements. Groq
+ * removes older Llama / Mixtral checkpoints periodically and the API then
+ * returns 400 model_decommissioned. Users whose saved settings still point at
+ * a removed model are silently upgraded here.
+ */
+const GROQ_MODEL_ALIASES: Record<string, string> = {
+  'llama-3.1-70b-versatile': 'llama-3.3-70b-versatile',
+  'mixtral-8x7b-32768':      'llama-3.3-70b-versatile',
+};
+
+function remapGroqModel(model: string): string {
+  return GROQ_MODEL_ALIASES[model] ?? model;
+}
+
+/**
  * Returns the first available model ID based on injected user API keys.
  * Must be called after injectDynamicKeys() so process.env reflects user-supplied keys.
  */
@@ -43,7 +58,11 @@ export async function getLangChainModel(modelId?: string) {
   if (id.startsWith('groq/') || id.startsWith('llama') || id.startsWith('mixtral')) {
     const key = process.env.GROQ_API_KEY;
     if (!key) throw new Error('Groq API key is not configured. Please add it in Settings → API Keys.');
-    return new ChatGroq({ model: id.replace('groq/', ''), apiKey: key });
+    // Auto-redirect Groq model IDs that have been decommissioned upstream so
+    // users with old settings rows (saved before the deprecation) keep working
+    // instead of getting "model_decommissioned" 400 errors at runtime.
+    const groqModel = remapGroqModel(id.replace('groq/', ''));
+    return new ChatGroq({ model: groqModel, apiKey: key });
   }
 
   if (id.startsWith('mistral/') || (id.includes('mistral') && !id.startsWith('googleai/'))) {

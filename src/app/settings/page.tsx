@@ -46,8 +46,6 @@ const AVAILABLE_MODELS = [
   { id: 'anthropic/claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku', provider: 'anthropic' },
   { id: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5', provider: 'anthropic' },
   { id: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', provider: 'groq' },
-  { id: 'groq/llama-3.1-70b-versatile', label: 'Llama 3.1 70B (Groq)', provider: 'groq' },
-  { id: 'groq/mixtral-8x7b-32768', label: 'Mixtral 8x7B (Groq)', provider: 'groq' },
   { id: 'groq/llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (Groq)', provider: 'groq' },
   { id: 'mistral/mistral-large-latest', label: 'Mistral Large', provider: 'mistral' },
   { id: 'mistral/mistral-small-latest', label: 'Mistral Small', provider: 'mistral' },
