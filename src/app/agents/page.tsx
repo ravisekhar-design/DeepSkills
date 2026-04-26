@@ -20,29 +20,31 @@ import {
   Plus, Trash2, Edit, MessageSquare, Wand2, Loader2, Zap,
   BrainCircuit, ArrowUp, ArrowDown, Users, ShieldAlert, LogIn,
   Database, Code2, FolderOpen, ChevronRight, ChevronDown,
-  File, FolderClosed, Check, Minus, X, AlertCircle
+  File, FolderClosed, Check, Minus, X, AlertCircle, SlidersHorizontal
 } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogTrigger, DialogFooter
+  Dialog, DialogContent, DialogHeader, DialogTitle
 } from "@/components/ui/dialog";
+import {
+  Sheet, SheetContent, SheetTitle, SheetDescription
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { agentPersonaGeneration } from "@/ai/flows/agent-persona-generation";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { useUser } from "@/hooks/use-user";
 import { useCollection } from "@/hooks/use-collection";
 import { useAgents, useSaveAgent, useDeleteAgent } from "@/hooks/queries/use-agents";
 import { useSkills } from "@/hooks/queries/use-skills";
 import { useSettings } from "@/hooks/queries/use-settings";
+
+type AgentFormTab = 'identity' | 'parameters' | 'skills' | 'datasources' | 'files';
 
 // ── Agent Card Skeleton ──────────────────────────────────────────────────────
 
@@ -88,34 +90,30 @@ export default function AgentsPage() {
 
   const [isNewAgentOpen, setIsNewAgentOpen]   = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [agentFormTab, setAgentFormTab]       = useState<AgentFormTab>('identity');
 
   // ── Folder / file loading state ──────────────────────────────────────────
-  const [fileFolders, setFileFolders]                       = useState<FileFolder[]>([]);
-  const [foldersLoading, setFoldersLoading]                 = useState(false);
-  const [folderFilesCache, setFolderFilesCache]             = useState<Map<string, FileRecord[]>>(new Map());
-  const [expandedFolderIds, setExpandedFolderIds]           = useState<Set<string>>(new Set());
-  const [loadingFolderIds, setLoadingFolderIds]             = useState<Set<string>>(new Set());
+  const [fileFolders, setFileFolders]             = useState<FileFolder[]>([]);
+  const [foldersLoading, setFoldersLoading]       = useState(false);
+  const [folderFilesCache, setFolderFilesCache]   = useState<Map<string, FileRecord[]>>(new Map());
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const [loadingFolderIds, setLoadingFolderIds]   = useState<Set<string>>(new Set());
 
-  // Load folders whenever the create/edit dialog opens
   useEffect(() => {
     if (!user || !isNewAgentOpen) return;
     setFoldersLoading(true);
     fetch('/api/files?type=folders')
       .then(r => r.json())
       .then(j => setFileFolders(j.data || []))
-      .catch(() => toast({
-        title: "Failed to load folders",
-        description: "Could not fetch file storage folders.",
-        variant: "destructive"
-      }))
+      .catch(() => toast({ title: "Failed to load folders", variant: "destructive" }))
       .finally(() => setFoldersLoading(false));
   }, [user?.uid, isNewAgentOpen]); // eslint-disable-line
 
-  // ── Available skills — merge defaults with custom ────────────────────────
+  // ── Available skills ─────────────────────────────────────────────────────
   const availableSkills = useMemo(() => {
-    const customMap     = new Map(customSkills.map(s => [s.id, s]));
+    const customMap      = new Map(customSkills.map(s => [s.id, s]));
     const mergedDefaults = DEFAULT_SKILLS.map(ds => customMap.has(ds.id) ? customMap.get(ds.id)! : ds);
-    const pureCustom    = customSkills.filter(cs => !DEFAULT_SKILLS.some(ds => ds.id === cs.id));
+    const pureCustom     = customSkills.filter(cs => !DEFAULT_SKILLS.some(ds => ds.id === cs.id));
     return [...mergedDefaults, ...pureCustom];
   }, [customSkills]);
 
@@ -132,12 +130,12 @@ export default function AgentsPage() {
   const [parameters, setParameters] = useState({
     creativity: 0.7, maxLength: 1000, temperature: 0.7, topP: 0.9,
   });
-  const [selectedSkills, setSelectedSkills]     = useState<string[]>([]);
+  const [selectedSkills, setSelectedSkills]       = useState<string[]>([]);
   const [selectedDatabases, setSelectedDatabases] = useState<string[]>([]);
-  const [selectedFolders, setSelectedFolders]   = useState<string[]>([]);
-  const [selectedFiles, setSelectedFiles]       = useState<string[]>([]);
+  const [selectedFolders, setSelectedFolders]     = useState<string[]>([]);
+  const [selectedFiles, setSelectedFiles]         = useState<string[]>([]);
 
-  // ── Folder expand / file lazy-load ───────────────────────────────────────
+  // ── Folder / file helpers ────────────────────────────────────────────────
   const toggleFolderExpand = useCallback(async (folderId: string) => {
     if (expandedFolderIds.has(folderId)) {
       setExpandedFolderIds(prev => { const s = new Set(prev); s.delete(folderId); return s; });
@@ -151,14 +149,14 @@ export default function AgentsPage() {
         const json = await res.json();
         setFolderFilesCache(prev => new Map([...prev, [folderId, json.data || []]]));
       } catch {
-        toast({ title: "Failed to load files", description: "Could not fetch files for this folder.", variant: "destructive" });
+        toast({ title: "Failed to load files", variant: "destructive" });
       } finally {
         setLoadingFolderIds(prev => { const s = new Set(prev); s.delete(folderId); return s; });
       }
     }
   }, [expandedFolderIds, folderFilesCache, toast]);
 
-  const cachedFileIds     = (folderId: string) => (folderFilesCache.get(folderId) || []).map(f => f.id);
+  const cachedFileIds         = (folderId: string) => (folderFilesCache.get(folderId) || []).map(f => f.id);
   const isFolderFullySelected = (folderId: string) => {
     if (selectedFolders.includes(folderId)) return true;
     const ids = cachedFileIds(folderId);
@@ -234,25 +232,26 @@ export default function AgentsPage() {
       return;
     }
     if (!name || !persona) {
+      setAgentFormTab('identity');
       toast({
-        title: "Error",
-        description: "Agent Name and Neural Persona are required. Return to the 'Persona & Goals' tab.",
+        title: "Required Fields",
+        description: "Agent Name and Neural Persona are required.",
         variant: "destructive"
       });
       return;
     }
 
     const agentData: Agent = {
-      id:         editingAgent ? editingAgent.id : Math.random().toString(36).substring(7),
+      id:          editingAgent ? editingAgent.id : Math.random().toString(36).substring(7),
       name,
       persona,
-      objectives: objectives.split("\n").filter(o => o.trim()),
+      objectives:  objectives.split("\n").filter(o => o.trim()),
       parameters,
-      skills:     selectedSkills,
-      databases:  selectedDatabases,
+      skills:      selectedSkills,
+      databases:   selectedDatabases,
       fileFolders: selectedFolders,
-      files:      selectedFiles,
-      status:     editingAgent ? editingAgent.status : 'active',
+      files:       selectedFiles,
+      status:      editingAgent ? editingAgent.status : 'active',
     };
 
     saveAgentMutation.mutate(agentData, {
@@ -283,6 +282,7 @@ export default function AgentsPage() {
     setSelectedDatabases(agent.databases || []);
     setSelectedFolders(agent.fileFolders || []);
     setSelectedFiles(agent.files || []);
+    setAgentFormTab('identity');
     setIsNewAgentOpen(true);
   };
 
@@ -292,14 +292,14 @@ export default function AgentsPage() {
     );
 
   const moveSkill = (index: number, direction: 'up' | 'down') => {
-    const newSkills   = [...selectedSkills];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newSkills.length) return;
-    [newSkills[index], newSkills[targetIndex]] = [newSkills[targetIndex], newSkills[index]];
-    setSelectedSkills(newSkills);
+    const next   = [...selectedSkills];
+    const target = direction === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setSelectedSkills(next);
   };
 
-  // ── Delete (with confirmation) ────────────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────────────────
   const confirmDelete = () => {
     if (!deletingAgentId) return;
     deleteAgentMutation.mutate(deletingAgentId, {
@@ -307,27 +307,18 @@ export default function AgentsPage() {
         setDeletingAgentId(null);
         toast({ title: "Agent Terminated", description: "Removed from Nexus." });
       },
-      onError: () => toast({
-        title: "Delete Failed",
-        description: "Could not remove agent.",
-        variant: "destructive"
-      }),
+      onError: () => toast({ title: "Delete Failed", variant: "destructive" }),
     });
   };
 
   const resetForm = () => {
     setEditingAgent(null);
-    setRoleDesc("");
-    setName("");
-    setPersona("");
-    setObjectives("");
+    setRoleDesc(""); setName(""); setPersona(""); setObjectives("");
     setParameters({ creativity: 0.7, maxLength: 1000, temperature: 0.7, topP: 0.9 });
-    setSelectedSkills([]);
-    setSelectedDatabases([]);
-    setSelectedFolders([]);
-    setSelectedFiles([]);
-    setExpandedFolderIds(new Set());
-    setFolderFilesCache(new Map());
+    setSelectedSkills([]); setSelectedDatabases([]);
+    setSelectedFolders([]); setSelectedFiles([]);
+    setExpandedFolderIds(new Set()); setFolderFilesCache(new Map());
+    setAgentFormTab('identity');
   };
 
   // ── Code editor save ─────────────────────────────────────────────────────
@@ -343,6 +334,18 @@ export default function AgentsPage() {
   };
 
   const totalFileSelections = selectedFolders.length + selectedFiles.length;
+
+  // ── Nav sections ─────────────────────────────────────────────────────────
+  const navSections: {
+    key: AgentFormTab; label: string; sub: string;
+    Icon: React.ElementType; count?: number; complete: boolean; required: boolean;
+  }[] = [
+    { key: 'identity',    label: 'Persona & Goals',   sub: 'Identity & objectives',    Icon: BrainCircuit,      required: true,  complete: !!(name && persona) },
+    { key: 'parameters',  label: 'Cognitive Settings', sub: 'Inference parameters',     Icon: SlidersHorizontal, required: false, complete: true },
+    { key: 'skills',      label: 'Skill Pipeline',     sub: 'Active modules',           Icon: Zap,               count: selectedSkills.length,    required: false, complete: selectedSkills.length > 0 },
+    { key: 'datasources', label: 'Data Sources',       sub: 'Connected databases',      Icon: Database,          count: selectedDatabases.length, required: false, complete: selectedDatabases.length > 0 },
+    { key: 'files',       label: 'Files & Folders',    sub: 'Context documents',        Icon: FolderOpen,        count: totalFileSelections,      required: false, complete: totalFileSelections > 0 },
+  ];
 
   // ── Auth states ──────────────────────────────────────────────────────────
   if (authLoading) {
@@ -373,68 +376,212 @@ export default function AgentsPage() {
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto space-y-8">
-      {/* ── Page header ───────────────────────────────────────────────────── */}
+
+      {/* ── Page header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl sm:text-4xl font-bold tracking-tighter">Autonomous Entities</h1>
           <p className="text-muted-foreground sm:text-lg">Define and orchestrate cognitive agents with specialized personas.</p>
         </div>
+        <Button
+          size="lg"
+          className="gradient-copper shadow-xl shadow-accent/20 h-12 px-8"
+          onClick={() => { resetForm(); setIsNewAgentOpen(true); }}
+        >
+          <Plus className="mr-2 size-5" /> Initialize Deep Agent
+        </Button>
+      </div>
 
-        {/* ── Initialize / Edit Agent Dialog ──────────────────────────────── */}
-        <Dialog open={isNewAgentOpen} onOpenChange={(open) => {
-          setIsNewAgentOpen(open);
-          if (!open) resetForm();
-        }}>
-          <DialogTrigger asChild>
-            <Button size="lg" className="gradient-copper shadow-xl shadow-accent/20 h-12 px-8">
-              <Plus className="mr-2 size-5" /> Initialize Deep Agent
+      {/* ── Agent Cards Grid ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pt-4">
+        {agentsLoading && Array.from({ length: 3 }).map((_, i) => <AgentCardSkeleton key={i} />)}
+
+        {agentsError && !agentsLoading && (
+          <div className="col-span-full py-16 flex flex-col items-center text-center gap-4">
+            <AlertCircle className="size-12 text-destructive opacity-50" />
+            <p className="text-sm text-muted-foreground">Failed to load agents. Please try again.</p>
+            <Button variant="outline" size="sm" onClick={() => refetchAgents()}>Retry</Button>
+          </div>
+        )}
+
+        {!agentsLoading && !agentsError && agents.map((agent) => {
+          const folderCount = (agent.fileFolders || []).length;
+          const fileCount   = (agent.files || []).length;
+          const dbCount     = (agent.databases || []).length;
+          return (
+            <Card key={agent.id} className="glass-panel group relative overflow-hidden transition-all hover:border-accent/40 border-b-4 border-b-accent/20">
+              <CardHeader className="pb-4">
+                <div className="flex justify-between items-start">
+                  <div className="size-14 rounded-2xl gradient-sapphire border border-accent/20 flex items-center justify-center font-bold text-2xl text-accent" aria-hidden>
+                    {agent.name.charAt(0)}
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" role="group" aria-label={`Actions for ${agent.name}`}>
+                    <Button variant="ghost" size="icon" className="size-9 text-muted-foreground hover:text-accent"
+                      aria-label={`View code for ${agent.name}`}
+                      onClick={() => { setViewCodeAgent(agent); setCodeTab('agent'); }}
+                    >
+                      <Code2 className="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="size-9 text-muted-foreground hover:text-accent"
+                      aria-label={`Edit ${agent.name}`}
+                      onClick={() => handleEdit(agent)}
+                    >
+                      <Edit className="size-5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="size-9 text-destructive"
+                      aria-label={`Delete ${agent.name}`}
+                      onClick={() => setDeletingAgentId(agent.id)}
+                    >
+                      <Trash2 className="size-5" />
+                    </Button>
+                  </div>
+                </div>
+                <CardTitle className="mt-5 text-2xl font-bold tracking-tight">{agent.name}</CardTitle>
+                <CardDescription className="line-clamp-2 min-h-[48px] text-sm leading-relaxed">{agent.persona}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {agent.skills?.map((skillId: string, index: number) => {
+                    const skill = availableSkills.find(s => s.id === skillId);
+                    return (
+                      <Badge key={skillId} variant="outline" className={`text-[10px] border-accent/20 font-bold px-2.5 py-0.5 ${index === 0 ? 'bg-accent/20 text-accent' : 'bg-accent/5 text-muted-foreground'}`}>
+                        {index === 0 && <Zap className="size-2 mr-1 inline" aria-hidden />}
+                        {skill?.name || skillId.toUpperCase()}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                {(dbCount > 0 || folderCount > 0 || fileCount > 0) && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {dbCount > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><Database className="size-2.5" aria-hidden />{dbCount} DB</span>}
+                    {folderCount > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><FolderClosed className="size-2.5" aria-hidden />{folderCount} folder{folderCount !== 1 ? 's' : ''}</span>}
+                    {fileCount > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><File className="size-2.5" aria-hidden />{fileCount} file{fileCount !== 1 ? 's' : ''}</span>}
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="pt-2">
+                <Button asChild className="w-full h-11 gradient-sapphire border border-border group-hover:border-accent/30 font-bold uppercase text-xs">
+                  <Link href={`/chat?agent=${agent.id}`}>
+                    <MessageSquare className="size-4 mr-2" aria-hidden /> Establish Link
+                  </Link>
+                </Button>
+              </CardFooter>
+            </Card>
+          );
+        })}
+
+        {!agentsLoading && !agentsError && agents.length === 0 && (
+          <div className="col-span-full py-24 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-[2rem] bg-secondary/5">
+            <Users className="size-20 mb-6 text-muted-foreground opacity-10" aria-hidden />
+            <h3 className="text-2xl font-bold mb-2">No Cognitive Entities Detected</h3>
+            <p className="text-muted-foreground mb-8 text-center max-w-sm">Initialize your first deep agent to begin orchestrating autonomous tasks.</p>
+            <Button onClick={() => { resetForm(); setIsNewAgentOpen(true); }} className="gradient-copper h-12 px-10">
+              Create Agent
             </Button>
-          </DialogTrigger>
-          <DialogContent
-            className="w-[95vw] max-w-4xl glass-panel p-0 border-accent/20 flex flex-col"
-            style={{ height: 'min(88vh, 780px)' }}
-            aria-label={editingAgent ? `Re-configure ${editingAgent.name}` : 'Initialize Deep Agent'}
-          >
-            <DialogHeader className="shrink-0 px-6 pt-5 pb-0">
-              <DialogTitle className="text-xl flex items-center gap-3">
-                <BrainCircuit className="size-6 text-accent" />
+          </div>
+        )}
+      </div>
+
+      {/* ── Agent Configuration Sheet ────────────────────────────────────────── */}
+      <Sheet open={isNewAgentOpen} onOpenChange={(open) => { setIsNewAgentOpen(open); if (!open) resetForm(); }}>
+        <SheetContent
+          side="right"
+          className="!p-0 !gap-0 !w-full sm:!w-[840px] sm:!max-w-[840px] flex flex-col border-l border-accent/20 bg-background"
+          aria-label={editingAgent ? `Re-configure ${editingAgent.name}` : 'Initialize Deep Agent'}
+        >
+          {/* ── Header ──────────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-4 px-6 pt-5 pb-4 border-b border-border shrink-0 pr-14">
+            <div className="size-10 rounded-2xl gradient-copper flex items-center justify-center shrink-0">
+              <BrainCircuit className="size-5 text-white" aria-hidden />
+            </div>
+            <div className="flex-1 min-w-0">
+              <SheetTitle className="text-xl font-bold tracking-tight leading-tight">
                 {editingAgent ? `Re-configure ${editingAgent.name}` : 'Initialize Deep Agent'}
-              </DialogTitle>
-            </DialogHeader>
+              </SheetTitle>
+              <SheetDescription className="text-xs mt-0.5">
+                {editingAgent
+                  ? 'Update persona, cognitive settings, and data access.'
+                  : 'Configure neural persona, skill pipeline, and data access for your agent.'}
+              </SheetDescription>
+            </div>
+            {/* Live summary badges */}
+            <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+              {selectedSkills.length > 0 && (
+                <Badge variant="secondary" className="text-[9px] h-5 px-2 border border-accent/20">
+                  <Zap className="size-2 mr-1" />{selectedSkills.length} skills
+                </Badge>
+              )}
+              {selectedDatabases.length > 0 && (
+                <Badge variant="secondary" className="text-[9px] h-5 px-2 border border-accent/20">
+                  <Database className="size-2 mr-1" />{selectedDatabases.length} DB
+                </Badge>
+              )}
+              {totalFileSelections > 0 && (
+                <Badge variant="secondary" className="text-[9px] h-5 px-2 border border-accent/20">
+                  <File className="size-2 mr-1" />{totalFileSelections} files
+                </Badge>
+              )}
+            </div>
+          </div>
 
-            <Tabs defaultValue="identity" className="w-full flex flex-col flex-1 min-h-0 overflow-hidden">
-              <TabsList className="shrink-0 w-full justify-start rounded-none border-b bg-sidebar/20 px-6 h-11 overflow-x-auto mt-4">
-                <TabsTrigger value="identity" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
-                  Persona & Goals
-                </TabsTrigger>
-                <TabsTrigger value="parameters" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
-                  Cognitive Settings
-                </TabsTrigger>
-                <TabsTrigger value="skills" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
-                  Skill Pipeline
-                  {selectedSkills.length > 0 && (
-                    <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{selectedSkills.length}</span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="datasources" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
-                  <Database className="size-3 mr-1.5 inline" />Data Sources
-                  {selectedDatabases.length > 0 && (
-                    <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{selectedDatabases.length}</span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="files" className="rounded-none bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-accent text-xs sm:text-sm">
-                  <FolderOpen className="size-3 mr-1.5 inline" />Files & Folders
-                  {totalFileSelections > 0 && (
-                    <span className="ml-1.5 size-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center inline-flex">{totalFileSelections}</span>
-                  )}
-                </TabsTrigger>
-              </TabsList>
+          {/* ── Body: left nav + scrollable content ─────────────────────────── */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
 
-              <div className="px-6 pb-6 pt-4 h-[60vh] overflow-hidden flex flex-col">
+            {/* Left navigation */}
+            <nav
+              className="w-52 shrink-0 border-r border-border py-3 px-2 flex flex-col gap-0.5 bg-sidebar/30"
+              aria-label="Agent configuration sections"
+            >
+              {navSections.map(({ key, label, sub, Icon, count, complete, required }) => {
+                const isActive      = agentFormTab === key;
+                const showCheck     = complete && key !== 'parameters';
+                const showWarning   = required && !complete && (!!name || !!persona);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setAgentFormTab(key)}
+                    className={`w-full flex items-start gap-3 px-3 py-3 rounded-xl text-left transition-all ${
+                      isActive
+                        ? 'bg-accent/15 border border-accent/25 shadow-sm'
+                        : 'border border-transparent hover:bg-secondary/50 hover:border-border/50'
+                    }`}
+                    aria-current={isActive ? 'step' : undefined}
+                  >
+                    <div className={`size-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      isActive ? 'bg-accent text-white' : 'bg-secondary/60 text-muted-foreground'
+                    }`}>
+                      <Icon className="size-3.5" aria-hidden />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[11px] font-bold truncate ${isActive ? 'text-accent' : 'text-foreground'}`}>
+                        {label}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                        {count != null && count > 0 ? `${count} active` : sub}
+                      </div>
+                    </div>
+                    {showCheck && (
+                      <div className="size-4 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-1.5">
+                        <Check className="size-2.5 text-emerald-500" />
+                      </div>
+                    )}
+                    {showWarning && (
+                      <div className="size-4 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0 mt-1.5">
+                        <AlertCircle className="size-2.5 text-amber-500" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
 
-                {/* ── Persona & Goals ─────────────────────────────────────── */}
-                <TabsContent value="identity" className="flex flex-col gap-4 mt-0 flex-1 min-h-0">
-                  <div className="shrink-0 grid gap-3 p-4 rounded-xl bg-accent/5 border border-accent/10">
+            {/* Right content — scrollable */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+
+              {/* ── Persona & Goals ──────────────────────────────────────────── */}
+              {agentFormTab === 'identity' && (
+                <div className="p-6 flex flex-col gap-5">
+                  <div className="grid gap-3 p-4 rounded-xl bg-accent/5 border border-accent/10">
                     <Label className="text-accent font-bold tracking-widest uppercase text-[10px]">Cognitive Seed</Label>
                     <div className="flex gap-2">
                       <Input
@@ -445,51 +592,58 @@ export default function AgentsPage() {
                         onKeyDown={(e) => e.key === 'Enter' && handleGeneratePersona()}
                         aria-label="Role description for AI persona generation"
                       />
-                      <Button onClick={handleGeneratePersona} disabled={genLoading} variant="secondary" className="border border-accent/20 h-11 px-6" aria-label="Generate persona with AI">
+                      <Button
+                        onClick={handleGeneratePersona}
+                        disabled={genLoading}
+                        variant="secondary"
+                        className="border border-accent/20 h-11 px-6 shrink-0"
+                        aria-label="Generate persona with AI"
+                      >
                         {genLoading ? <Loader2 className="animate-spin size-4" /> : <Wand2 className="size-4 mr-2" />}
                         Synthesize
                       </Button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 grid-rows-1">
-                    <div className="flex flex-col gap-4 min-h-0">
-                      <div className="shrink-0 grid gap-2">
-                        <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Agent Identity</Label>
-                        <Input
-                          placeholder="Agent Name"
-                          className="bg-secondary/30 h-11"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          aria-label="Agent name"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2 flex-1 min-h-0">
-                        <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Neural Persona</Label>
-                        <Textarea
-                          placeholder="Detailed background profile..."
-                          className="resize-none flex-1 min-h-0 bg-secondary/30 leading-relaxed"
-                          value={persona}
-                          onChange={(e) => setPersona(e.target.value)}
-                          aria-label="Agent persona description"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2 min-h-0">
-                      <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Strategic Objectives</Label>
-                      <Textarea
-                        placeholder="Mission critical goals (one per line)..."
-                        className="resize-none flex-1 min-h-0 bg-secondary/30 leading-relaxed"
-                        value={objectives}
-                        onChange={(e) => setObjectives(e.target.value)}
-                        aria-label="Agent strategic objectives"
-                      />
-                    </div>
-                  </div>
-                </TabsContent>
 
-                {/* ── Cognitive Settings ───────────────────────────────────── */}
-                <TabsContent value="parameters" className="flex flex-col mt-0 flex-1 min-h-0">
-                  <div className="flex-1 px-8 py-10 rounded-2xl bg-secondary/10 border border-border flex flex-col justify-center gap-10">
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Agent Identity</Label>
+                    <Input
+                      placeholder="Agent Name"
+                      className="bg-secondary/30 h-11"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      aria-label="Agent name"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Neural Persona</Label>
+                    <Textarea
+                      placeholder="Detailed background profile..."
+                      className="resize-none min-h-[140px] bg-secondary/30 leading-relaxed"
+                      value={persona}
+                      onChange={(e) => setPersona(e.target.value)}
+                      aria-label="Agent persona description"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground font-bold tracking-widest uppercase text-[10px]">Strategic Objectives</Label>
+                    <Textarea
+                      placeholder="Mission critical goals (one per line)..."
+                      className="resize-none min-h-[140px] bg-secondary/30 leading-relaxed"
+                      value={objectives}
+                      onChange={(e) => setObjectives(e.target.value)}
+                      aria-label="Agent strategic objectives"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Cognitive Settings ───────────────────────────────────────── */}
+              {agentFormTab === 'parameters' && (
+                <div className="p-6">
+                  <div className="rounded-2xl bg-secondary/10 border border-border p-8 flex flex-col gap-10">
                     <div className="flex flex-col gap-5">
                       <div className="flex justify-between items-center">
                         <Label className="text-sm font-bold" htmlFor="creativity-slider">Creativity Bias (Temperature)</Label>
@@ -517,14 +671,16 @@ export default function AgentsPage() {
                       />
                     </div>
                   </div>
-                </TabsContent>
+                </div>
+              )}
 
-                {/* ── Skill Pipeline ───────────────────────────────────────── */}
-                <TabsContent value="skills" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Modules</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-4">
-                      <div className="space-y-2">
+              {/* ── Skill Pipeline ───────────────────────────────────────────── */}
+              {agentFormTab === 'skills' && (
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Modules</Label>
+                      <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                         {availableSkills.map((skill) => {
                           const active = selectedSkills.includes(skill.id);
                           return (
@@ -548,12 +704,10 @@ export default function AgentsPage() {
                           );
                         })}
                       </div>
-                    </ScrollArea>
-                  </div>
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Pipeline</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-2">
-                      <div className="space-y-2">
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Active Pipeline</Label>
+                      <div className="bg-secondary/10 rounded-2xl p-4 border border-border flex flex-col gap-2 min-h-[200px] max-h-[520px] overflow-y-auto">
                         {selectedSkills.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No skills selected yet</p>
                         )}
@@ -579,16 +733,18 @@ export default function AgentsPage() {
                           );
                         })}
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
-                </TabsContent>
+                </div>
+              )}
 
-                {/* ── Data Sources ──────────────────────────────────────────── */}
-                <TabsContent value="datasources" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Databases</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-4">
-                      <div className="space-y-2">
+              {/* ── Data Sources ─────────────────────────────────────────────── */}
+              {agentFormTab === 'datasources' && (
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Databases</Label>
+                      <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                         {dbConnections.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-border rounded-xl">
                             <Database className="size-10 mb-3 text-muted-foreground opacity-20" />
@@ -621,12 +777,10 @@ export default function AgentsPage() {
                           })
                         )}
                       </div>
-                    </ScrollArea>
-                  </div>
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Connected Sources</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-2">
-                      <div className="space-y-2">
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Connected Sources</Label>
+                      <div className="bg-secondary/10 rounded-2xl p-4 border border-border flex flex-col gap-2 min-h-[200px] max-h-[520px] overflow-y-auto">
                         {selectedDatabases.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No databases selected yet</p>
                         )}
@@ -652,16 +806,18 @@ export default function AgentsPage() {
                           );
                         })}
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
-                </TabsContent>
+                </div>
+              )}
 
-                {/* ── Files & Folders ──────────────────────────────────────── */}
-                <TabsContent value="files" className="grid grid-cols-2 grid-rows-1 gap-6 mt-0 flex-1 min-h-0">
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">Available Folders &amp; Files</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-4">
-                      <div className="space-y-2">
+              {/* ── Files & Folders ──────────────────────────────────────────── */}
+              {agentFormTab === 'files' && (
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Folders &amp; Files</Label>
+                      <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
                         {foldersLoading ? (
                           <div className="flex items-center justify-center py-12">
                             <Loader2 className="size-6 animate-spin text-accent opacity-50" />
@@ -674,15 +830,15 @@ export default function AgentsPage() {
                           </div>
                         ) : (
                           fileFolders.map((folder: FileFolder) => {
-                            const isExpanded    = expandedFolderIds.has(folder.id);
+                            const isExpanded     = expandedFolderIds.has(folder.id);
                             const isLoadingFiles = loadingFolderIds.has(folder.id);
-                            const fullySelected = isFolderFullySelected(folder.id);
-                            const partial       = isFolderPartial(folder.id);
-                            const files         = folderFilesCache.get(folder.id) || [];
+                            const fullySelected  = isFolderFullySelected(folder.id);
+                            const partial        = isFolderPartial(folder.id);
+                            const files          = folderFilesCache.get(folder.id) || [];
                             return (
                               <div key={folder.id} className="rounded-xl border border-border overflow-hidden">
                                 <div
-                                  className={`flex items-start gap-3 p-3 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10 border-accent/40' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
+                                  className={`flex items-start gap-3 p-3 transition-all cursor-pointer ${fullySelected ? 'bg-accent/10' : partial ? 'bg-accent/5' : 'bg-secondary/10 hover:bg-secondary/20'}`}
                                   onClick={() => toggleFolder(folder.id)}
                                   role="checkbox"
                                   aria-checked={fullySelected ? true : partial ? 'mixed' : false}
@@ -721,7 +877,7 @@ export default function AgentsPage() {
                                     ) : (
                                       <div className="p-2 space-y-1">
                                         {files.map((file: FileRecord) => {
-                                          const fileSelected   = selectedFolders.includes(folder.id) || selectedFiles.includes(file.id);
+                                          const fileSelected    = selectedFolders.includes(folder.id) || selectedFiles.includes(file.id);
                                           const coveredByFolder = selectedFolders.includes(folder.id);
                                           return (
                                             <div
@@ -752,12 +908,10 @@ export default function AgentsPage() {
                           })
                         )}
                       </div>
-                    </ScrollArea>
-                  </div>
-                  <div className="flex flex-col gap-3 min-h-0 overflow-hidden bg-secondary/10 rounded-2xl p-4 border border-border">
-                    <Label className="text-[10px] uppercase tracking-widest font-bold text-accent shrink-0">Active Context</Label>
-                    <ScrollArea className="flex-1 overflow-hidden pr-2">
-                      <div className="space-y-2">
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <Label className="text-[10px] uppercase tracking-widest font-bold text-accent">Active Context</Label>
+                      <div className="bg-secondary/10 rounded-2xl p-4 border border-border flex flex-col gap-2 min-h-[200px] max-h-[520px] overflow-y-auto">
                         {selectedFolders.length === 0 && selectedFiles.length === 0 && (
                           <p className="text-xs text-muted-foreground text-center py-6 opacity-50">No files selected yet</p>
                         )}
@@ -813,145 +967,46 @@ export default function AgentsPage() {
                           );
                         })}
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
-                </TabsContent>
-              </div>
-            </Tabs>
+                </div>
+              )}
 
-            <DialogFooter className="p-6 pt-4 border-t bg-sidebar/40">
+            </div>
+          </div>
+
+          {/* ── Footer ──────────────────────────────────────────────────────── */}
+          <div className="shrink-0 px-6 py-4 border-t border-border bg-sidebar/40 flex items-center justify-between gap-4">
+            <div className="text-xs text-muted-foreground min-w-0 truncate hidden sm:block">
+              {name ? (
+                <>
+                  <span className="font-semibold text-foreground">{name}</span>
+                  {selectedSkills.length > 0 && <span> · {selectedSkills.length} skill{selectedSkills.length !== 1 ? 's' : ''}</span>}
+                  {selectedDatabases.length > 0 && <span> · {selectedDatabases.length} DB</span>}
+                  {totalFileSelections > 0 && <span> · {totalFileSelections} file{totalFileSelections !== 1 ? 's' : ''}</span>}
+                </>
+              ) : (
+                <span className="italic opacity-40">No agent name set</span>
+              )}
+            </div>
+            <div className="flex gap-2 ml-auto">
               <Button variant="ghost" onClick={() => setIsNewAgentOpen(false)}>Cancel</Button>
               <Button
                 onClick={handleSave}
                 disabled={saveAgentMutation.isPending}
-                className="gradient-copper min-w-[160px] h-11 text-sm font-bold uppercase"
+                className="gradient-copper min-w-[160px] h-10 text-sm font-bold uppercase tracking-wide"
               >
                 {saveAgentMutation.isPending
                   ? <><Loader2 className="size-4 animate-spin mr-2" />Saving...</>
                   : editingAgent ? 'Update Profile' : 'Deploy to Nexus'
                 }
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* ── Agent Cards Grid ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pt-4">
-        {/* Loading skeleton */}
-        {agentsLoading && Array.from({ length: 3 }).map((_, i) => (
-          <AgentCardSkeleton key={i} />
-        ))}
-
-        {/* Error state */}
-        {agentsError && !agentsLoading && (
-          <div className="col-span-full py-16 flex flex-col items-center text-center gap-4">
-            <AlertCircle className="size-12 text-destructive opacity-50" />
-            <p className="text-sm text-muted-foreground">Failed to load agents. Please try again.</p>
-            <Button variant="outline" size="sm" onClick={() => refetchAgents()}>Retry</Button>
+            </div>
           </div>
-        )}
+        </SheetContent>
+      </Sheet>
 
-        {/* Agent cards */}
-        {!agentsLoading && !agentsError && agents.map((agent) => {
-          const folderCount = (agent.fileFolders || []).length;
-          const fileCount   = (agent.files || []).length;
-          const dbCount     = (agent.databases || []).length;
-          return (
-            <Card key={agent.id} className="glass-panel group relative overflow-hidden transition-all hover:border-accent/40 border-b-4 border-b-accent/20">
-              <CardHeader className="pb-4">
-                <div className="flex justify-between items-start">
-                  <div className="size-14 rounded-2xl gradient-sapphire border border-accent/20 flex items-center justify-center font-bold text-2xl text-accent" aria-hidden>
-                    {agent.name.charAt(0)}
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" role="group" aria-label={`Actions for ${agent.name}`}>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="size-9 text-muted-foreground hover:text-accent"
-                      title="View Code"
-                      aria-label={`View code for ${agent.name}`}
-                      onClick={() => { setViewCodeAgent(agent); setCodeTab('agent'); }}
-                    >
-                      <Code2 className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="size-9 text-muted-foreground hover:text-accent"
-                      aria-label={`Edit ${agent.name}`}
-                      onClick={() => handleEdit(agent)}
-                    >
-                      <Edit className="size-5" />
-                    </Button>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="size-9 text-destructive"
-                      aria-label={`Delete ${agent.name}`}
-                      onClick={() => setDeletingAgentId(agent.id)}
-                    >
-                      <Trash2 className="size-5" />
-                    </Button>
-                  </div>
-                </div>
-                <CardTitle className="mt-5 text-2xl font-bold tracking-tight">{agent.name}</CardTitle>
-                <CardDescription className="line-clamp-2 min-h-[48px] text-sm leading-relaxed">{agent.persona}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {agent.skills?.map((skillId: string, index: number) => {
-                    const skill = availableSkills.find(s => s.id === skillId);
-                    return (
-                      <Badge key={skillId} variant="outline" className={`text-[10px] border-accent/20 font-bold px-2.5 py-0.5 ${index === 0 ? 'bg-accent/20 text-accent' : 'bg-accent/5 text-muted-foreground'}`}>
-                        {index === 0 && <Zap className="size-2 mr-1 inline" aria-hidden />}
-                        {skill?.name || skillId.toUpperCase()}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                {(dbCount > 0 || folderCount > 0 || fileCount > 0) && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {dbCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <Database className="size-2.5" aria-hidden />{dbCount} DB
-                      </span>
-                    )}
-                    {folderCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <FolderClosed className="size-2.5" aria-hidden />{folderCount} folder{folderCount !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                    {fileCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <File className="size-2.5" aria-hidden />{fileCount} file{fileCount !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="pt-2">
-                <Button asChild className="w-full h-11 gradient-sapphire border border-border group-hover:border-accent/30 font-bold uppercase text-xs">
-                  <Link href={`/chat?agent=${agent.id}`}>
-                    <MessageSquare className="size-4 mr-2" aria-hidden /> Establish Link
-                  </Link>
-                </Button>
-              </CardFooter>
-            </Card>
-          );
-        })}
-
-        {/* Empty state */}
-        {!agentsLoading && !agentsError && agents.length === 0 && (
-          <div className="col-span-full py-24 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-[2rem] bg-secondary/5">
-            <Users className="size-20 mb-6 text-muted-foreground opacity-10" aria-hidden />
-            <h3 className="text-2xl font-bold mb-2">No Cognitive Entities Detected</h3>
-            <p className="text-muted-foreground mb-8 text-center max-w-sm">Initialize your first deep agent to begin orchestrating autonomous tasks.</p>
-            <Button onClick={() => setIsNewAgentOpen(true)} className="gradient-copper h-12 px-10">
-              Create Agent
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Delete Confirmation Dialog ────────────────────────────────────── */}
+      {/* ── Delete Confirmation ──────────────────────────────────────────────── */}
       <AlertDialog open={!!deletingAgentId} onOpenChange={(open) => !open && setDeletingAgentId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -976,7 +1031,7 @@ export default function AgentsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Code Viewer / Editor Dialog ───────────────────────────────────── */}
+      {/* ── Code Viewer / Editor ─────────────────────────────────────────────── */}
       {viewCodeAgent && (() => {
         const agentSkills = (viewCodeAgent.skills ?? [])
           .map(id => availableSkills.find(s => s.id === id))
