@@ -45,7 +45,7 @@ export const skillService = {
 
   async upsertMany(userId: string, skills: Skill[]): Promise<void> {
     if (!Array.isArray(skills)) throw new ValidationError('skills must be an array');
-    await prisma.$transaction(
+    await Promise.all(
       skills.map(s =>
         prisma.skill.upsert({
           where: { id: s.id ?? '' },

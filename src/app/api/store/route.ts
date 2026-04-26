@@ -94,7 +94,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
 
     case 'nexus_chats':
       if (Array.isArray(data)) {
-        await prisma.$transaction(
+        await Promise.all(
           data.map((c: any) =>
             prisma.chatThread.upsert({
               where: { userId_agentId: { userId, agentId: c.agentId } },

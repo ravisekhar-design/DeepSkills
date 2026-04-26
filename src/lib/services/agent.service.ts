@@ -77,7 +77,7 @@ export const agentService = {
   /** Bulk upsert — replaces the entire agent list for the user. */
   async upsertMany(userId: string, agents: Agent[]): Promise<void> {
     if (!Array.isArray(agents)) throw new ValidationError('agents must be an array');
-    await prisma.$transaction(
+    await Promise.all(
       agents.map(a =>
         prisma.agent.upsert({
           where: { id: a.id ?? '' },
