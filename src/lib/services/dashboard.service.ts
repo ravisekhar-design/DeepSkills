@@ -106,10 +106,13 @@ export const dashboardService = {
   ): Promise<DashboardWidget> {
     const dash = await (prisma as any).dashboard.findFirst({ where: { id: dashboardId, userId } });
     if (!dash) throw new NotFoundError('Dashboard', dashboardId);
+    // Use scalar FK (dashboardId) instead of `dashboard: { connect: ... }`. The
+    // nested-write form makes Prisma run the insert inside an interactive
+    // transaction, which PrismaNeonHttp rejects with "Transactions are not
+    // supported in HTTP mode".
     const row = await (prisma as any).dashboardWidget.create({
       data: {
-        // Prisma 7: required relations must be connected explicitly, not via scalar FK alone
-        dashboard: { connect: { id: dashboardId } },
+        dashboardId,
         title: data.title ?? 'Untitled',
         chartType: data.chartType ?? 'bar',
         chartConfig: data.chartConfig ? JSON.stringify(data.chartConfig) : '{}',
