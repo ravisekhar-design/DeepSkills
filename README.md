@@ -428,7 +428,7 @@ src/
 | **Google** | `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-2.5-pro` | Free tier available |
 | **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` | Paid, generous limits |
 | **Anthropic** | `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5` | Paid |
-| **Groq** | `llama-3.3-70b-versatile`, `mixtral-8x7b` | Free tier, very fast |
+| **Groq** | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant` | Free tier, very fast |
 | **Mistral** | `mistral-large-latest`, `mistral-small-latest` | Free tier available |
 
 The system auto-detects which provider to use based on which API key is configured. No code changes needed to switch.
