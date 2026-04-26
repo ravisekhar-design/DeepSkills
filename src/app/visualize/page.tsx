@@ -14,7 +14,7 @@ import Link from "next/link";
 import {
   BarChart2, Plus, Trash2, Loader2, Database, Layers, FileText,
   LayoutDashboard, Search, ArrowRight,
-  Sparkles, Hash, ChevronRight, Box,
+  Sparkles, Hash, ChevronRight, Box, Pin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/hooks/use-user";
 import { semanticClientService } from "@/services/semantic.service";
@@ -118,6 +121,58 @@ export default function VisualizeHubPage() {
   const filteredDashboards = dashboards.filter(d => d.name.toLowerCase().includes(search.toLowerCase()));
 
   // ── Delete handlers ────────────────────────────────────────────────────────
+
+  // ── Pin worksheet to dashboard ─────────────────────────────────────────────
+
+  const pinWorksheetToDashboard = async (worksheetId: string, dashboardId: string) => {
+    const ws = worksheets.find(w => w.id === worksheetId);
+    if (!ws) return;
+    try {
+      // Execute the worksheet to get data
+      const result = await worksheetClientService.execute(ws.id);
+      const cfg = ws.config;
+      const palette = ['#6366f1', '#22d3ee', '#a3e635', '#f59e0b', '#ef4444', '#8b5cf6'];
+      const isHoriz = cfg.chartType === "horizontal_bar";
+      const dimCols = isHoriz ? cfg.rows : cfg.columns;
+      const measCols = isHoriz ? cfg.columns : cfg.rows;
+      const series = measCols.filter(p => p.role === "measure").map((p, i) => ({
+        dataKey: p.alias || `${p.aggregation ?? "sum"}_${p.fieldName}`,
+        name: `${p.aggregation ?? "sum"}(${p.displayName})`,
+        color: palette[i % palette.length],
+      }));
+      const chartConfig = {
+        title: ws.name,
+        chartType: cfg.chartType,
+        xKey: dimCols[0]?.fieldName ?? "",
+        series,
+        data: result.rows ?? [],
+        sql: null,
+      };
+      const res = await fetch(`/api/dashboards/${dashboardId}/widgets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: ws.name,
+          chartType: cfg.chartType,
+          chartConfig,
+          dataSourceType: "worksheet",
+          dataSourceId: ws.id,
+          dataSourceName: ws.name,
+          gridW: 1,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        const dash = dashboards.find(d => d.id === dashboardId);
+        toast({ title: `"${ws.name}" pinned to "${dash?.name ?? "dashboard"}"` });
+        setDashboards(prev => prev.map(d => d.id === dashboardId ? { ...d, widgetCount: d.widgetCount + 1 } : d));
+      } else {
+        toast({ title: "Failed to pin chart", description: json.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Failed to pin chart", description: e?.message, variant: "destructive" });
+    }
+  };
 
   const deleteModel = async (id: string) => {
     if (!confirm("Delete this model? Charts using it will be unbound.")) return;
@@ -306,7 +361,9 @@ export default function VisualizeHubPage() {
                       key={w.id}
                       worksheet={w}
                       modelName={models.find(m => m.id === w.modelId)?.name}
+                      dashboards={dashboards}
                       onDelete={() => deleteWorksheet(w.id)}
+                      onPinToDashboard={(dashId) => pinWorksheetToDashboard(w.id, dashId)}
                     />
                   ))}
                 </div>
@@ -465,7 +522,15 @@ function ModelCard({ model, onDelete }: { model: SemanticModel; onDelete: () => 
   );
 }
 
-function WorksheetCard({ worksheet, modelName, onDelete }: { worksheet: Worksheet; modelName?: string; onDelete: () => void }) {
+function WorksheetCard({
+  worksheet, modelName, dashboards, onDelete, onPinToDashboard,
+}: {
+  worksheet: Worksheet;
+  modelName?: string;
+  dashboards: Dashboard[];
+  onDelete: () => void;
+  onPinToDashboard: (dashboardId: string) => void;
+}) {
   return (
     <Card className="group hover:border-accent/50 transition-colors">
       <CardHeader className="pb-2 flex-row items-start justify-between space-y-0">
@@ -475,9 +540,28 @@ function WorksheetCard({ worksheet, modelName, onDelete }: { worksheet: Workshee
           </CardTitle>
           <Badge variant="outline" className="text-[9px] font-mono mt-1">{worksheet.config.chartType}</Badge>
         </Link>
-        <Button size="icon" variant="ghost" className="size-7 opacity-0 group-hover:opacity-100 hover:text-destructive" onClick={onDelete}>
-          <Trash2 className="size-3" />
-        </Button>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          {dashboards.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" className="size-7" title="Pin to Dashboard">
+                  <Pin className="size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-w-[200px]">
+                {dashboards.map(d => (
+                  <DropdownMenuItem key={d.id} onClick={() => onPinToDashboard(d.id)} className="text-xs">
+                    <LayoutDashboard className="size-3 mr-1.5 shrink-0" />
+                    <span className="truncate">{d.name}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Button size="icon" variant="ghost" className="size-7 hover:text-destructive" onClick={onDelete}>
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-0">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

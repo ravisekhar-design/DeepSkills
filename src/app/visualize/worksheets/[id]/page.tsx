@@ -510,33 +510,17 @@ export default function WorksheetEditorPage() {
     if (!worksheet || !chartConfig) return;
     setPinningId(dashboardId);
     try {
+      // Re-execute to get the freshest data, then attach to the already-correct
+      // chartConfig (which already handles KPI/gauge/sankey/table edge cases).
       const result = await worksheetClientService.execute(worksheet.id);
-      const cfg = worksheet.config;
-      const isHoriz = cfg.chartType === "horizontal_bar";
-      const dimCols = isHoriz ? cfg.rows : cfg.columns;
-      const measCols = isHoriz ? cfg.columns : cfg.rows;
-      const xKey = dimCols[0]?.fieldName ?? "";
-      const palette = PALETTE;
-      const series = measCols.filter(p => p.role === "measure").map((p, i) => ({
-        dataKey: p.alias || `${p.aggregation ?? "sum"}_${p.fieldName}`,
-        name: `${p.aggregation ?? "sum"}(${p.displayName})`,
-        color: palette[i % palette.length],
-      }));
-      const pinConfig: GeneratedChartConfig = {
-        title: worksheet.name,
-        chartType: cfg.chartType as any,
-        xKey,
-        series,
-        data: result.rows ?? [],
-        sql: null,
-      };
+      const pinConfig: GeneratedChartConfig = { ...chartConfig, data: result.rows ?? [] };
 
       const res = await fetch(`/api/dashboards/${dashboardId}/widgets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: worksheet.name,
-          chartType: cfg.chartType,
+          chartType: worksheet.config.chartType,
           chartConfig: pinConfig,
           dataSourceType: "worksheet",
           dataSourceId: worksheet.id,

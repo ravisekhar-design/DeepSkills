@@ -1,34 +1,33 @@
+import { neon } from "@neondatabase/serverless";
+import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";
+
+/**
+ * Neon HTTP serverless adapter replaces TCP-based connection pools.
+ *
+ * Why this matters for Vercel + Neon:
+ *   - Standard Prisma opens persistent TCP connections (one pool per lambda instance).
+ *   - Under concurrent traffic Vercel spawns many lambdas; each holds N connections.
+ *   - Neon free-tier caps total connections — they exhaust quickly → P2024 timeout.
+ *
+ * With the HTTP adapter every Prisma query becomes an independent HTTPS fetch to
+ * Neon's serverless endpoint.  No persistent connections are held between requests,
+ * so the P2024 "timed out fetching a connection" error cannot occur.
+ */
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// Build datasource URL with connection pool settings tuned for serverless (Neon).
-// Parameters already present in DATABASE_URL are never overridden.
-function buildDatasourceUrl(): string {
-  const raw = process.env.DATABASE_URL ?? "";
-  try {
-    const u = new URL(raw);
-    // 5 connections per warm instance is a safe ceiling for Neon's free tier.
-    // connection_limit=1 caused P2024 timeouts under even modest concurrency.
-    if (!u.searchParams.has("connection_limit")) u.searchParams.set("connection_limit", "5");
-    // How long (seconds) Prisma waits for a free slot before throwing P2024.
-    if (!u.searchParams.has("pool_timeout"))     u.searchParams.set("pool_timeout", "30");
-    // How long (seconds) to wait for the TCP handshake with Neon.
-    if (!u.searchParams.has("connect_timeout"))  u.searchParams.set("connect_timeout", "30");
-    return u.toString();
-  } catch {
-    return raw;
-  }
+function createClient(): PrismaClient {
+  const sql = neon(process.env.DATABASE_URL!);
+  const adapter = new PrismaNeon(sql as any);
+  const log = process.env.NODE_ENV === "development" ? (["query"] as const) : [];
+  // Spread adapter as `any` to bypass the strict `never` typing that Prisma emits
+  // for the adapter property when the driverAdapters preview type declarations
+  // don't perfectly align with the installed @prisma/adapter-neon version.
+  return new PrismaClient({ log, ...({ adapter } as any) });
 }
 
-export const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query"] : [],
-    datasources: { db: { url: buildDatasourceUrl() } },
-  });
+export const prisma = globalForPrisma.prisma || createClient();
 
-// Cache in ALL environments so warm serverless invocations reuse the same pool.
-// The original code only cached in development, causing a fresh PrismaClient
-// (and new connection pool) on every production cold-start module reload.
+// Reuse across warm invocations in all environments.
 globalForPrisma.prisma = prisma;
