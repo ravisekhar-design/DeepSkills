@@ -14,7 +14,7 @@ import {
   ScatterChart as ScatterIcon, Activity, Box, Filter as FilterIcon,
   Palette, Tag, AlertCircle, Play, Settings2, Hash as HashIcon,
   Search, Table2, TrendingDown, Gauge as GaugeIcon, GitBranch,
-  Layers, Triangle, Radio,
+  Layers, Triangle, Radio, LayoutDashboard, Download, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { semanticClientService } from "@/services/semantic.service";
 import { worksheetClientService } from "@/services/worksheet.service";
@@ -31,7 +35,7 @@ import type { SemanticModel, FieldDef, CalcField, AggFunc, DataType } from "@/li
 import type {
   Worksheet, WorksheetConfig, ShelfPill, FilterPill, ChartType,
 } from "@/lib/worksheet/types";
-import { defaultConfig, configToSemanticQuery } from "@/lib/worksheet/types";
+import { defaultConfig } from "@/lib/worksheet/types";
 
 // ── Chart type metadata ───────────────────────────────────────────────────────
 
@@ -80,6 +84,84 @@ function bgForRole(role: "dimension" | "measure") {
 // ── Chart types that need only measures (no xKey required) ────────────────────
 const MEASURE_ONLY_CHARTS: ChartType[] = ["kpi", "gauge", "histogram", "radial_bar"];
 
+// ── Export helper ─────────────────────────────────────────────────────────────
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function exportElement(
+  el: HTMLElement,
+  format: "png" | "jpeg" | "pdf" | "docx",
+  name: string,
+  toast: (opts: { title: string; description?: string; variant?: "destructive" }) => void,
+) {
+  try {
+    const { default: html2canvas } = await import("html2canvas" as any);
+    const canvas = await (html2canvas as any)(el, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#0f0f1a",
+    });
+
+    if (format === "png") {
+      triggerDownload(canvas.toDataURL("image/png"), `${name}.png`);
+      return;
+    }
+    if (format === "jpeg") {
+      triggerDownload(canvas.toDataURL("image/jpeg", 0.92), `${name}.jpg`);
+      return;
+    }
+    if (format === "pdf") {
+      const { default: jsPDF } = await import("jspdf" as any);
+      const w = canvas.width / 2;
+      const h = canvas.height / 2;
+      const orientation = w > h ? "landscape" : "portrait";
+      const pdf = new (jsPDF as any)({ orientation, unit: "px", format: [w, h] });
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, w, h);
+      pdf.save(`${name}.pdf`);
+      return;
+    }
+    if (format === "docx") {
+      const { Document, Packer, Paragraph, ImageRun, HeadingLevel } = await import("docx" as any);
+      const dataUrl = canvas.toDataURL("image/png");
+      const base64 = dataUrl.split(",")[1];
+      const binary = atob(base64);
+      const array = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+      const scaledH = Math.round(600 * (canvas.height / canvas.width));
+      const doc = new (Document as any)({
+        sections: [{
+          children: [
+            new (Paragraph as any)({ text: name, heading: HeadingLevel.HEADING_1 }),
+            new (Paragraph as any)({
+              children: [
+                new (ImageRun as any)({
+                  data: array.buffer,
+                  transformation: { width: 600, height: scaledH },
+                  type: "png",
+                }),
+              ],
+            }),
+          ],
+        }],
+      });
+      const blob = await (Packer as any).toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, `${name}.docx`);
+      URL.revokeObjectURL(url);
+    }
+  } catch (e: any) {
+    toast({ title: "Export failed", description: e?.message, variant: "destructive" });
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function WorksheetEditorPage() {
@@ -93,21 +175,29 @@ export default function WorksheetEditorPage() {
 
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
   const [model, setModel] = useState<SemanticModel | null>(null);
-  const [allModels, setAllModels] = useState<SemanticModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [fieldSearch, setFieldSearch] = useState("");
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  // Pin to Dashboard state
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [dashboards, setDashboards] = useState<Array<{ id: string; name: string; widgets: any[] }>>([]);
+  const [loadingDashboards, setLoadingDashboards] = useState(false);
+  const [pinningId, setPinningId] = useState<string | null>(null);
+
+  // Ref to the chart container for export
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Keep a stable ref to the latest worksheet so execute() never captures stale state
   const worksheetRef = useRef<Worksheet | null>(null);
   worksheetRef.current = worksheet;
 
   // Concurrency guards — prevent duplicate in-flight executes
-  const executingRef    = useRef(false);  // true while a fetch is in flight
-  const pendingExecRef  = useRef(false);  // config changed while in-flight → re-run after
-  // Track the last config we actually sent to the server to skip redundant PATCHes
+  const executingRef    = useRef(false);
+  const pendingExecRef  = useRef(false);
   const savedConfigRef  = useRef<string | null>(null);
 
   // ── Initialize ─────────────────────────────────────────────────────────────
@@ -116,7 +206,6 @@ export default function WorksheetEditorPage() {
     setLoading(true);
     try {
       const models = await semanticClientService.getAll();
-      setAllModels(models);
 
       if (isNew) {
         if (!presetModelId || !models.find(m => m.id === presetModelId)) {
@@ -236,13 +325,10 @@ export default function WorksheetEditorPage() {
   };
 
   // ── Execute query ─────────────────────────────────────────────────────────
-  // • Reads state via refs — never captures stale closures.
-  // • Mutex: if already in-flight, marks a pending re-run instead of stacking.
-  // • Skips the PATCH when the config hasn't changed since the last save.
 
   const execute = useCallback(async () => {
     if (executingRef.current) {
-      pendingExecRef.current = true; // re-run once current finishes
+      pendingExecRef.current = true;
       return;
     }
 
@@ -257,7 +343,6 @@ export default function WorksheetEditorPage() {
     setExecuting(true);
 
     try {
-      // Only PATCH when the config has actually changed since the last save.
       const cfgJson = JSON.stringify(cfg);
       if (savedConfigRef.current !== cfgJson) {
         await worksheetClientService.update(ws.id, { config: cfg });
@@ -272,12 +357,11 @@ export default function WorksheetEditorPage() {
     setExecuting(false);
     executingRef.current = false;
 
-    // If config changed while we were running, fire one more execute.
     if (pendingExecRef.current) {
       pendingExecRef.current = false;
       execute();
     }
-  }, []); // stable — all state accessed via refs
+  }, []); // eslint-disable-line
 
   // Debounced auto-execute when shelves change
   useEffect(() => {
@@ -295,7 +379,6 @@ export default function WorksheetEditorPage() {
     const cfg = worksheet.config;
     const rows = executionResult.rows ?? [];
 
-    // KPI / gauge / histogram / radial_bar — only need measures, no xKey
     if (MEASURE_ONLY_CHARTS.includes(cfg.chartType)) {
       const allPills = [...cfg.columns, ...cfg.rows];
       const mPill = allPills.find(p => p.role === "measure");
@@ -311,7 +394,6 @@ export default function WorksheetEditorPage() {
       };
     }
 
-    // Table — any fields work
     if (cfg.chartType === "table") {
       const allPills = [...cfg.columns, ...cfg.rows];
       if (!allPills.length) return null;
@@ -328,7 +410,6 @@ export default function WorksheetEditorPage() {
       };
     }
 
-    // Sankey — needs xKey + targetKey + one measure
     if (cfg.chartType === "sankey") {
       const dimPills = cfg.columns.filter(p => p.role === "dimension");
       const mPill = cfg.rows.find(p => p.role === "measure");
@@ -345,7 +426,6 @@ export default function WorksheetEditorPage() {
       };
     }
 
-    // Standard charts — dimension in columns (x), measures in rows (y)
     const isHoriz = cfg.chartType === "horizontal_bar";
     const dimCols = isHoriz ? cfg.rows : cfg.columns;
     const measCols = isHoriz ? cfg.columns : cfg.rows;
@@ -359,7 +439,6 @@ export default function WorksheetEditorPage() {
         color: PALETTE[i % PALETTE.length],
       }));
 
-    // Scatter / bubble can use measures on both axes — xKey may be a measure field
     if ((cfg.chartType === "scatter" || cfg.chartType === "bubble") && series.length >= 2) {
       return {
         title: worksheet.name,
@@ -411,6 +490,83 @@ export default function WorksheetEditorPage() {
     return null;
   }, [worksheet, executionResult, model]);
 
+  // ── Pin to Dashboard ──────────────────────────────────────────────────────
+
+  const openPinDialog = async () => {
+    setPinDialogOpen(true);
+    if (dashboards.length > 0) return;
+    setLoadingDashboards(true);
+    try {
+      const res = await fetch("/api/dashboards");
+      const json = await res.json();
+      setDashboards(json.data ?? []);
+    } catch {
+      toast({ title: "Failed to load dashboards", variant: "destructive" });
+    }
+    setLoadingDashboards(false);
+  };
+
+  const pinToDashboard = async (dashboardId: string) => {
+    if (!worksheet || !chartConfig) return;
+    setPinningId(dashboardId);
+    try {
+      const result = await worksheetClientService.execute(worksheet.id);
+      const cfg = worksheet.config;
+      const isHoriz = cfg.chartType === "horizontal_bar";
+      const dimCols = isHoriz ? cfg.rows : cfg.columns;
+      const measCols = isHoriz ? cfg.columns : cfg.rows;
+      const xKey = dimCols[0]?.fieldName ?? "";
+      const palette = PALETTE;
+      const series = measCols.filter(p => p.role === "measure").map((p, i) => ({
+        dataKey: p.alias || `${p.aggregation ?? "sum"}_${p.fieldName}`,
+        name: `${p.aggregation ?? "sum"}(${p.displayName})`,
+        color: palette[i % palette.length],
+      }));
+      const pinConfig: GeneratedChartConfig = {
+        title: worksheet.name,
+        chartType: cfg.chartType as any,
+        xKey,
+        series,
+        data: result.rows ?? [],
+        sql: null,
+      };
+
+      const res = await fetch(`/api/dashboards/${dashboardId}/widgets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: worksheet.name,
+          chartType: cfg.chartType,
+          chartConfig: pinConfig,
+          dataSourceType: "worksheet",
+          dataSourceId: worksheet.id,
+          dataSourceName: worksheet.name,
+          gridW: 1,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        const dash = dashboards.find(d => d.id === dashboardId);
+        toast({ title: `Pinned to "${dash?.name ?? "dashboard"}"` });
+        setPinDialogOpen(false);
+      } else {
+        toast({ title: "Failed to pin", description: json.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Failed to pin", description: e?.message, variant: "destructive" });
+    }
+    setPinningId(null);
+  };
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  const handleExport = async (format: "png" | "jpeg" | "pdf" | "docx") => {
+    if (!chartContainerRef.current || !worksheet) return;
+    setExporting(format);
+    await exportElement(chartContainerRef.current, format, worksheet.name, toast as any);
+    setExporting(null);
+  };
+
   if (loading) return <div className="h-[100dvh] flex items-center justify-center"><Loader2 className="size-6 animate-spin text-accent" /></div>;
   if (!worksheet) return <div className="h-[100dvh] flex items-center justify-center text-muted-foreground">Worksheet not found</div>;
 
@@ -439,6 +595,34 @@ export default function WorksheetEditorPage() {
           {executing ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
           Run
         </Button>
+        {/* Pin to Dashboard */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 h-8"
+          onClick={openPinDialog}
+          disabled={!chartConfig}
+          title="Add this chart to a dashboard"
+        >
+          <LayoutDashboard className="size-3.5" />
+          Pin to Dashboard
+        </Button>
+        {/* Export */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" className="gap-1.5 h-8" disabled={!chartConfig || !!exporting}>
+              {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleExport("png")}>PNG Image</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("jpeg")}>JPEG Image</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleExport("pdf")}>PDF Document</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("docx")}>Word Document (.docx)</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button size="sm" className="gap-1.5 h-8" onClick={() => save()} disabled={saving}>
           {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
           Save
@@ -527,7 +711,7 @@ export default function WorksheetEditorPage() {
             ) : executionResult?.error ? (
               <PreviewMessage icon={AlertCircle} title="Query failed" subtitle={executionResult.error} error />
             ) : chartConfig ? (
-              <div className="rounded-xl border border-border bg-card h-full p-4 overflow-auto">
+              <div ref={chartContainerRef} className="rounded-xl border border-border bg-card h-full p-4 overflow-auto">
                 <ChartRenderer config={chartConfig} height={500} />
                 {executionResult && (
                   <p className="text-[10px] text-muted-foreground mt-3 text-center">
@@ -636,6 +820,49 @@ export default function WorksheetEditorPage() {
           </ScrollArea>
         </div>
       </div>
+
+      {/* Pin to Dashboard dialog */}
+      <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutDashboard className="size-4 text-accent" /> Pin to Dashboard
+            </DialogTitle>
+            <DialogDescription>Select a dashboard to add this chart to.</DialogDescription>
+          </DialogHeader>
+          {loadingDashboards ? (
+            <div className="py-8 flex items-center justify-center">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : dashboards.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No dashboards yet. Create one in the Dashboards tab.
+            </div>
+          ) : (
+            <div className="space-y-1.5 py-2 max-h-72 overflow-y-auto">
+              {dashboards.map(d => (
+                <button
+                  key={d.id}
+                  onClick={() => pinToDashboard(d.id)}
+                  disabled={pinningId === d.id}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-accent text-left transition-colors disabled:opacity-60"
+                >
+                  {pinningId === d.id ? (
+                    <Loader2 className="size-4 animate-spin text-accent shrink-0" />
+                  ) : (
+                    <LayoutDashboard className="size-4 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{d.name}</p>
+                    <p className="text-[11px] text-muted-foreground">{d.widgets?.length ?? 0} chart{d.widgets?.length !== 1 ? "s" : ""}</p>
+                  </div>
+                  <Plus className="size-3.5 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,19 +5,22 @@
  * Compose multiple worksheets into a dashboard with global filters and cross-filtering.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Loader2, Save, Plus, Trash2, BarChart2, Sparkles,
+  ArrowLeft, Loader2, Plus, Trash2, BarChart2,
   Filter as FilterIcon, RefreshCw, Square, Columns as ColumnsIcon,
-  Maximize2, X, Search, AlertCircle, Layers, LayoutDashboard,
+  Maximize2, X, Search, Layers, LayoutDashboard, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { worksheetClientService } from "@/services/worksheet.service";
@@ -46,6 +49,84 @@ interface Dashboard {
   widgets: DashboardWidget[];
 }
 
+// ── Export helper (shared with worksheet page) ────────────────────────────────
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function exportElement(
+  el: HTMLElement,
+  format: "png" | "jpeg" | "pdf" | "docx",
+  name: string,
+  onError: (msg: string) => void,
+) {
+  try {
+    const { default: html2canvas } = await import("html2canvas" as any);
+    const canvas = await (html2canvas as any)(el, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#0f0f1a",
+    });
+
+    if (format === "png") {
+      triggerDownload(canvas.toDataURL("image/png"), `${name}.png`);
+      return;
+    }
+    if (format === "jpeg") {
+      triggerDownload(canvas.toDataURL("image/jpeg", 0.92), `${name}.jpg`);
+      return;
+    }
+    if (format === "pdf") {
+      const { default: jsPDF } = await import("jspdf" as any);
+      const w = canvas.width / 2;
+      const h = canvas.height / 2;
+      const orientation = w > h ? "landscape" : "portrait";
+      const pdf = new (jsPDF as any)({ orientation, unit: "px", format: [w, h] });
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, w, h);
+      pdf.save(`${name}.pdf`);
+      return;
+    }
+    if (format === "docx") {
+      const { Document, Packer, Paragraph, ImageRun, HeadingLevel } = await import("docx" as any);
+      const dataUrl = canvas.toDataURL("image/png");
+      const base64 = dataUrl.split(",")[1];
+      const binary = atob(base64);
+      const array = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+      const scaledH = Math.round(600 * (canvas.height / canvas.width));
+      const doc = new (Document as any)({
+        sections: [{
+          children: [
+            new (Paragraph as any)({ text: name, heading: (HeadingLevel as any).HEADING_1 }),
+            new (Paragraph as any)({
+              children: [
+                new (ImageRun as any)({
+                  data: array.buffer,
+                  transformation: { width: 600, height: scaledH },
+                  type: "png",
+                }),
+              ],
+            }),
+          ],
+        }],
+      });
+      const blob = await (Packer as any).toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      triggerDownload(url, `${name}.docx`);
+      URL.revokeObjectURL(url);
+    }
+  } catch (e: any) {
+    onError(e?.message ?? "Export failed");
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function DashboardEditorPage() {
@@ -57,11 +138,13 @@ export default function DashboardEditorPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [worksheets, setWorksheets] = useState<Worksheet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [crossFilter, setCrossFilter] = useState<{ column: string; value: string } | null>(null);
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [worksheetSearch, setWorksheetSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  const gridRef = useRef<HTMLDivElement>(null);
 
   // ── Load ───────────────────────────────────────────────────────────────────
 
@@ -87,9 +170,7 @@ export default function DashboardEditorPage() {
   const addWorksheetWidget = async (ws: Worksheet) => {
     if (!dashboard) return;
     try {
-      // Execute the worksheet to get fresh data
       const result = await worksheetClientService.execute(ws.id);
-      // Build chart config matching ChartRenderer expectations
       const cfg = ws.config;
       const dimCols = cfg.chartType === "horizontal_bar" ? cfg.rows : cfg.columns;
       const measCols = cfg.chartType === "horizontal_bar" ? cfg.columns : cfg.rows;
@@ -135,7 +216,7 @@ export default function DashboardEditorPage() {
     }
   };
 
-  // ── Refresh widget (re-execute its source worksheet) ─────────────────────
+  // ── Refresh ───────────────────────────────────────────────────────────────
 
   const refreshWidget = async (widget: DashboardWidget) => {
     if (widget.dataSourceType !== "worksheet" || !dashboard) return;
@@ -210,6 +291,20 @@ export default function DashboardEditorPage() {
     return { ...config, data: filtered };
   };
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  const handleExport = async (format: "png" | "jpeg" | "pdf" | "docx") => {
+    if (!gridRef.current || !dashboard) return;
+    setExporting(format);
+    await exportElement(
+      gridRef.current,
+      format,
+      dashboard.name,
+      msg => toast({ title: "Export failed", description: msg, variant: "destructive" }),
+    );
+    setExporting(null);
+  };
+
   // ── Filter for picker ─────────────────────────────────────────────────────
 
   const filteredWorksheets = useMemo(
@@ -243,6 +338,22 @@ export default function DashboardEditorPage() {
         <Button size="sm" variant="outline" className="gap-1.5 h-8" onClick={refreshAll}>
           <RefreshCw className="size-3.5" /> Refresh All
         </Button>
+        {/* Export */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" className="gap-1.5 h-8" disabled={dashboard.widgets.length === 0 || !!exporting}>
+              {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleExport("png")}>PNG Image</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("jpeg")}>JPEG Image</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleExport("pdf")}>PDF Document</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("docx")}>Word Document (.docx)</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button size="sm" className="gap-1.5 h-8" onClick={() => setAddPickerOpen(true)}>
           <Plus className="size-3.5" /> Add Chart
         </Button>
@@ -250,7 +361,7 @@ export default function DashboardEditorPage() {
 
       {/* Grid */}
       <ScrollArea className="flex-1">
-        <div className="p-4">
+        <div ref={gridRef} className="p-4">
           {dashboard.widgets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center max-w-md mx-auto">
               <div className="p-4 rounded-2xl bg-muted/30 border border-border mb-4">
