@@ -14,7 +14,7 @@ import {
   ScatterChart as ScatterIcon, Activity, Box, Filter as FilterIcon,
   Palette, Tag, AlertCircle, Play, Settings2, Hash as HashIcon,
   Search, Table2, TrendingDown, Gauge as GaugeIcon, GitBranch,
-  Layers, Triangle, Radio, LayoutDashboard, Download, Plus,
+  Layers, Triangle, Radio, LayoutDashboard, Download, Plus, CheckCircle2, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,9 +184,13 @@ export default function WorksheetEditorPage() {
 
   // Pin to Dashboard state
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
-  const [dashboards, setDashboards] = useState<Array<{ id: string; name: string; widgets: any[] }>>([]);
+  const [dashboards, setDashboards] = useState<Array<{ id: string; name: string; widgetCount?: number }>>([]);
   const [loadingDashboards, setLoadingDashboards] = useState(false);
   const [pinningId, setPinningId] = useState<string | null>(null);
+  const [pinWidth, setPinWidth] = useState<1 | 2>(1);
+  const [pinSuccess, setPinSuccess] = useState<{ id: string; name: string } | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newDashName, setNewDashName] = useState("");
 
   // Ref to the chart container for export
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -494,6 +498,9 @@ export default function WorksheetEditorPage() {
 
   const openPinDialog = async () => {
     setPinDialogOpen(true);
+    setPinSuccess(null);
+    setCreatingNew(false);
+    setNewDashName("");
     if (dashboards.length > 0) return;
     setLoadingDashboards(true);
     try {
@@ -510,11 +517,8 @@ export default function WorksheetEditorPage() {
     if (!worksheet || !chartConfig) return;
     setPinningId(dashboardId);
     try {
-      // Re-execute to get the freshest data, then attach to the already-correct
-      // chartConfig (which already handles KPI/gauge/sankey/table edge cases).
       const result = await worksheetClientService.execute(worksheet.id);
       const pinConfig: GeneratedChartConfig = { ...chartConfig, data: result.rows ?? [] };
-
       const res = await fetch(`/api/dashboards/${dashboardId}/widgets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -525,19 +529,63 @@ export default function WorksheetEditorPage() {
           dataSourceType: "worksheet",
           dataSourceId: worksheet.id,
           dataSourceName: worksheet.name,
-          gridW: 1,
+          gridW: pinWidth,
         }),
       });
       const json = await res.json();
       if (json.data) {
         const dash = dashboards.find(d => d.id === dashboardId);
-        toast({ title: `Pinned to "${dash?.name ?? "dashboard"}"` });
-        setPinDialogOpen(false);
+        setPinSuccess({ id: dashboardId, name: dash?.name ?? "Dashboard" });
+        setDashboards(prev => prev.map(d => d.id === dashboardId ? { ...d, widgetCount: (d.widgetCount ?? 0) + 1 } : d));
       } else {
-        toast({ title: "Failed to pin", description: json.error, variant: "destructive" });
+        toast({ title: "Failed to add chart", description: json.error, variant: "destructive" });
       }
     } catch (e: any) {
-      toast({ title: "Failed to pin", description: e?.message, variant: "destructive" });
+      toast({ title: "Failed to add chart", description: e?.message, variant: "destructive" });
+    }
+    setPinningId(null);
+  };
+
+  const createAndPin = async () => {
+    if (!newDashName.trim() || !worksheet || !chartConfig) return;
+    setPinningId("__creating");
+    try {
+      const createRes = await fetch("/api/dashboards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newDashName.trim() }),
+      });
+      const createJson = await createRes.json();
+      const newDash = createJson.data;
+      if (!newDash) throw new Error(createJson.error || "Failed to create dashboard");
+      setDashboards(prev => [{ ...newDash, widgetCount: 0 }, ...prev]);
+      setCreatingNew(false);
+      setNewDashName("");
+      setPinningId(newDash.id);
+      const result = await worksheetClientService.execute(worksheet.id);
+      const pinConfig: GeneratedChartConfig = { ...chartConfig, data: result.rows ?? [] };
+      const pinRes = await fetch(`/api/dashboards/${newDash.id}/widgets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: worksheet.name,
+          chartType: worksheet.config.chartType,
+          chartConfig: pinConfig,
+          dataSourceType: "worksheet",
+          dataSourceId: worksheet.id,
+          dataSourceName: worksheet.name,
+          gridW: pinWidth,
+        }),
+      });
+      const pinJson = await pinRes.json();
+      if (pinJson.data) {
+        setPinSuccess({ id: newDash.id, name: newDash.name });
+        setDashboards(prev => prev.map(d => d.id === newDash.id ? { ...d, widgetCount: 1 } : d));
+      } else {
+        throw new Error(pinJson.error || "Failed to pin chart");
+      }
+    } catch (e: any) {
+      toast({ title: "Failed", description: e?.message, variant: "destructive" });
     }
     setPinningId(null);
   };
@@ -805,46 +853,152 @@ export default function WorksheetEditorPage() {
         </div>
       </div>
 
-      {/* Pin to Dashboard dialog */}
-      <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
-        <DialogContent className="max-w-md">
+      {/* Add to Dashboard — enterprise panel */}
+      <Dialog open={pinDialogOpen} onOpenChange={open => { setPinDialogOpen(open); if (!open) { setPinSuccess(null); setCreatingNew(false); setNewDashName(""); } }}>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <LayoutDashboard className="size-4 text-accent" /> Pin to Dashboard
+              <LayoutDashboard className="size-4 text-accent" /> Add to Dashboard
             </DialogTitle>
-            <DialogDescription>Select a dashboard to add this chart to.</DialogDescription>
+            <DialogDescription>
+              "{worksheet?.name}" will be added as a new chart.
+            </DialogDescription>
           </DialogHeader>
-          {loadingDashboards ? (
-            <div className="py-8 flex items-center justify-center">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+
+          {/* Success banner */}
+          {pinSuccess && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+              <CheckCircle2 className="size-4 text-green-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-green-400">Added to &quot;{pinSuccess.name}&quot;</p>
+                <p className="text-[11px] text-muted-foreground">You can add to more dashboards or close.</p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5 shrink-0 border-green-500/30 text-green-400 hover:bg-green-500/10"
+                onClick={() => { setPinDialogOpen(false); router.push(`/visualize/dashboards/${pinSuccess.id}`); }}
+              >
+                View <ArrowRight className="size-3" />
+              </Button>
             </div>
-          ) : dashboards.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No dashboards yet. Create one in the Dashboards tab.
-            </div>
-          ) : (
-            <div className="space-y-1.5 py-2 max-h-72 overflow-y-auto">
-              {dashboards.map(d => (
+          )}
+
+          {/* Chart width selector */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 mb-2">Chart Width</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([1, 2] as const).map(w => (
                 <button
-                  key={d.id}
-                  onClick={() => pinToDashboard(d.id)}
-                  disabled={pinningId === d.id}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:border-accent text-left transition-colors disabled:opacity-60"
+                  key={w}
+                  onClick={() => setPinWidth(w)}
+                  className={`p-3 rounded-lg border text-left transition-all ${pinWidth === w ? "border-accent bg-accent/10 ring-1 ring-accent/30" : "border-border hover:border-accent/50 hover:bg-accent/5"}`}
                 >
-                  {pinningId === d.id ? (
-                    <Loader2 className="size-4 animate-spin text-accent shrink-0" />
-                  ) : (
-                    <LayoutDashboard className="size-4 text-muted-foreground shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{d.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{d.widgets?.length ?? 0} chart{d.widgets?.length !== 1 ? "s" : ""}</p>
+                  <div className="flex gap-1 mb-2 h-5">
+                    <div className={`bg-accent/50 rounded-sm ${w === 1 ? "w-1/2" : "w-full"}`} />
+                    {w === 1 && <div className="flex-1 bg-border/40 rounded-sm" />}
                   </div>
-                  <Plus className="size-3.5 text-muted-foreground" />
+                  <p className="text-xs font-medium">{w === 1 ? "Half Width" : "Full Width"}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{w === 1 ? "Two per row" : "Spans full row"}</p>
                 </button>
               ))}
             </div>
-          )}
+          </div>
+
+          {/* Dashboard list */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Dashboards</p>
+              {!creatingNew && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={() => setCreatingNew(true)}>
+                  <Plus className="size-3" /> New
+                </Button>
+              )}
+            </div>
+
+            {/* Inline create form */}
+            {creatingNew && (
+              <div className="flex gap-2 mb-3 p-3 rounded-lg border border-accent/40 bg-accent/5">
+                <Input
+                  value={newDashName}
+                  onChange={e => setNewDashName(e.target.value)}
+                  placeholder="Dashboard name…"
+                  className="h-8 text-sm"
+                  autoFocus
+                  onKeyDown={e => { if (e.key === "Enter") createAndPin(); if (e.key === "Escape") { setCreatingNew(false); setNewDashName(""); } }}
+                />
+                <Button size="sm" className="h-8 shrink-0 text-xs" onClick={createAndPin} disabled={!newDashName.trim() || !!pinningId}>
+                  {pinningId === "__creating" ? <Loader2 className="size-3.5 animate-spin" /> : "Create & Add"}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 shrink-0 px-2" onClick={() => { setCreatingNew(false); setNewDashName(""); }}>
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            )}
+
+            {loadingDashboards ? (
+              <div className="py-8 flex items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : dashboards.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No dashboards yet — create one above.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-0.5">
+                {dashboards.map(d => {
+                  const count = d.widgetCount ?? 0;
+                  const isPinning = pinningId === d.id;
+                  const isPinned = pinSuccess?.id === d.id;
+                  const blockColors = ["bg-accent/50", "bg-blue-500/35", "bg-green-500/35", "bg-orange-500/35"];
+                  const blocks = Math.min(count, 4);
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => !isPinning && pinToDashboard(d.id)}
+                      disabled={isPinning}
+                      className={`relative p-3 rounded-lg border text-left transition-all disabled:opacity-70 ${
+                        isPinned
+                          ? "border-green-500/40 bg-green-500/5 cursor-default"
+                          : "border-border hover:border-accent hover:bg-accent/5 cursor-pointer active:scale-[0.98]"
+                      }`}
+                    >
+                      {/* Mini widget grid preview */}
+                      <div className="grid grid-cols-2 gap-1 h-10 mb-2">
+                        {blocks === 0 ? (
+                          <div className="col-span-2 flex items-center justify-center border border-dashed border-border/60 rounded-sm">
+                            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">empty</span>
+                          </div>
+                        ) : (
+                          Array.from({ length: blocks }).map((_, i) => (
+                            <div
+                              key={i}
+                              className={`${blockColors[i % blockColors.length]} rounded-sm ${blocks === 1 || (blocks === 3 && i === 2) ? "col-span-2" : ""}`}
+                            />
+                          ))
+                        )}
+                      </div>
+                      <p className="text-xs font-medium truncate pr-4">{d.name}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{count} chart{count !== 1 ? "s" : ""}</p>
+
+                      {/* Overlay spinner while pinning */}
+                      {isPinning && (
+                        <div className="absolute inset-0 bg-background/70 rounded-lg flex items-center justify-center">
+                          <Loader2 className="size-4 animate-spin text-accent" />
+                        </div>
+                      )}
+                      {/* Pinned check mark */}
+                      {isPinned && (
+                        <div className="absolute top-2 right-2">
+                          <CheckCircle2 className="size-3.5 text-green-400" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

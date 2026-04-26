@@ -108,16 +108,17 @@ export const dashboardService = {
     if (!dash) throw new NotFoundError('Dashboard', dashboardId);
     const row = await (prisma as any).dashboardWidget.create({
       data: {
-        dashboardId,
+        // Prisma 7: required relations must be connected explicitly, not via scalar FK alone
+        dashboard: { connect: { id: dashboardId } },
         title: data.title ?? 'Untitled',
-        chartType: data.chartType ?? null,
-        chartConfig: data.chartConfig ? JSON.stringify(data.chartConfig) : null,
-        dataSourceType: data.dataSourceType ?? null,
-        dataSourceId: data.dataSourceId ?? null,
-        dataSourceName: data.dataSourceName ?? null,
+        chartType: data.chartType ?? 'bar',
+        chartConfig: data.chartConfig ? JSON.stringify(data.chartConfig) : '{}',
+        dataSourceType: data.dataSourceType ?? 'worksheet',
+        dataSourceId: data.dataSourceId ?? '',
+        dataSourceName: data.dataSourceName ?? '',
         dataQuery: data.dataQuery ?? null,
-        prompt: data.prompt ?? null,
-        gridW: data.gridW ?? 6,
+        prompt: data.prompt ?? '',
+        gridW: data.gridW ?? 1,
       },
     });
     return widgetFromRow(row);
