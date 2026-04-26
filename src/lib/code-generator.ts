@@ -191,6 +191,165 @@ A string containing the result of the ${skill.name} operation.
 `;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Python generators — feature parity with the TypeScript path above.
+// Follows https://docs.langchain.com/oss/python/deepagents/customization
+//   - create_deep_agent() from `deepagents`
+//   - @tool from `langchain_core.tools`
+//   - Tool args declared via Python type hints (parsed by LangChain into a schema)
+//   - System prompt via the `instructions=` keyword argument
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Built-in skill implementations, Python edition. Each mirrors the TS body. */
+const BUILTIN_SKILL_CODE_PY: Record<string, string> = {
+  'stock-price': `"""Skill: Stock Price
+
+Retrieves real-time equity pricing and historical market data.
+"""
+
+import random
+from langchain_core.tools import tool
+
+
+@tool
+def market_oracle(ticker: str, timeframe: str = "1d") -> str:
+    """Retrieves real-time equity pricing and historical market data.
+
+    Use when the user asks about stock prices, tickers, or market performance.
+
+    Args:
+        ticker: Stock ticker symbol, e.g. AAPL, TSLA, MSFT.
+        timeframe: Analysis window, e.g. 1d, 1w, 1m.
+    """
+    # TODO: Replace with a real market data API (e.g. Alpha Vantage, Polygon.io).
+    price = round(random.uniform(100, 300), 2)
+    return f"{ticker} is trading at \${price} ({timeframe} window)."
+`,
+
+  'weather': `"""Skill: Weather
+
+Retrieves current weather conditions for a location.
+"""
+
+from langchain_core.tools import tool
+
+
+@tool
+def weather(location: str) -> str:
+    """Retrieves current weather conditions for a location.
+
+    Use when the user asks about temperature, forecast, or atmospheric conditions.
+
+    Args:
+        location: City name, region, or coordinates.
+    """
+    # TODO: Replace with a real weather API (e.g. OpenWeatherMap, WeatherAPI.com).
+    return f"[{location}] 22°C, clear skies."
+`,
+
+  'web-search': `"""Skill: Web Search
+
+Searches the web for up-to-date information.
+"""
+
+from langchain_core.tools import tool
+
+
+@tool
+def web_search(query: str) -> str:
+    """Searches the web for up-to-date information.
+
+    Use when the user needs current facts, news, or information beyond training data.
+
+    Args:
+        query: The search query string.
+    """
+    # TODO: Replace with a real search API (e.g. Tavily, Serper, Brave Search).
+    return f'Search results for "{query}": relevant sources found.'
+`,
+
+  'code-executor': `"""Skill: Code Executor
+
+Executes code in an isolated sandbox environment.
+"""
+
+from langchain_core.tools import tool
+
+
+@tool
+def code_executor(code: str, language: str = "python") -> str:
+    """Executes code in an isolated sandbox environment.
+
+    Use when the user asks to run, test, or evaluate a code snippet.
+
+    Args:
+        code: The code to execute.
+        language: Programming language, e.g. python, typescript.
+    """
+    # TODO: Replace with a real sandbox (e.g. E2B, Daytona, Docker).
+    snippet = code[:60]
+    return f"[{language}] Execution complete for: {snippet}..."
+`,
+};
+
+/**
+ * Escape a string so it is safe both inside a Python triple-quoted block AND
+ * inside the surrounding TypeScript template literal we use to build the
+ * generated source. We replace `"""` (would close the Python string) and any
+ * backtick (would close the TS template literal we are concatenating into).
+ */
+function escapePyTripleQuoted(s: string): string {
+  return s.replace(/"""/g, '\\"\\"\\"').replace(/`/g, "'");
+}
+
+/**
+ * Returns the Python implementation for a skill.
+ * Priority: saved Python custom code → built-in implementation → generated template.
+ */
+export function generateSkillCodePython(skill: Skill): string {
+  // Allow per-skill custom Python override if the user has saved one.
+  if ((skill as any).codePython) return (skill as any).codePython;
+  if (BUILTIN_SKILL_CODE_PY[skill.id]) return BUILTIN_SKILL_CODE_PY[skill.id];
+
+  const toolName = toValidIdentifier(skill.name);
+  const inputs = skill.inputs ?? [];
+
+  // Function signature: each input becomes a typed `str` parameter.
+  const sigParams = inputs.length > 0
+    ? inputs.map(i => `${i}: str`).join(', ')
+    : '';
+
+  // Args: section in the docstring (Google-style, parsed by LangChain into the schema).
+  const argsBlock = inputs.length > 0
+    ? '\n\n    Args:\n' +
+      inputs.map(i => `        ${i}: The ${i} parameter.`).join('\n')
+    : '';
+
+  // Body returns either a JSON-style summary of inputs or a static success message.
+  const body = inputs.length > 0
+    ? `args = {${inputs.map(i => `"${i}": ${i}`).join(', ')}}\n    return f"[${skill.name}] called with: {args}"`
+    : `return "[${skill.name}] executed successfully."`;
+
+  const description = escapePyTripleQuoted(skill.description);
+
+  return `"""Skill: ${skill.name}
+
+${description}
+"""
+
+from langchain_core.tools import tool
+
+
+@tool
+def ${toolName}(${sigParams}) -> str:
+    """${description}${argsBlock}
+    """
+    # TODO: Implement the ${skill.name} skill logic here.
+    # Refer to SKILL.md for full instructions and parameter details.
+    ${body}
+`;
+}
+
 /**
  * Generates the full TypeScript Deep Agent entry point.
  * Follows the official LangChain Deep Agents JS/TS structure:
@@ -275,5 +434,107 @@ export async function chat(
 // Usage:
 // const reply = await chat('Hello, what can you do?');
 // console.log(reply);
+`;
+}
+
+/**
+ * Generates the full Python Deep Agent entry point.
+ *
+ * Follows https://docs.langchain.com/oss/python/deepagents/customization:
+ *   - create_deep_agent() from `deepagents`
+ *   - Tools imported from skills.<name>
+ *   - System prompt via the `instructions=` keyword argument
+ *   - Async invocation through `agent.ainvoke({"messages": [...]})`
+ *
+ * Returns agent.codePython if a custom Python implementation has been saved.
+ */
+export function generateAgentCodePython(agent: Agent, skills: Skill[]): string {
+  if ((agent as any).codePython) return (agent as any).codePython;
+
+  const agentSkills = (agent.skills ?? [])
+    .map(id => skills.find(s => s.id === id))
+    .filter(Boolean) as Skill[];
+
+  const skillImports = agentSkills.length > 0
+    ? agentSkills
+        .map(s => `from skills.${toSkillDirName(s.name)} import ${toValidIdentifier(s.name)}`)
+        .join('\n')
+    : '# No skills assigned — import skill tools here';
+
+  const toolsList = agentSkills.length > 0
+    ? agentSkills.map(s => `    ${toValidIdentifier(s.name)},`).join('\n')
+    : '    # add imported tools here';
+
+  const objectives = (agent.objectives ?? []).filter(Boolean);
+  const objectivesBlock = objectives.length > 0
+    ? '\n\nObjectives:\n' + objectives.map(o => `- ${o}`).join('\n')
+    : '';
+
+  const instructions = escapePyTripleQuoted(agent.persona + objectivesBlock);
+
+  const skillDirComment = agentSkills.length > 0
+    ? agentSkills
+        .map(s => `  skills/${toSkillDirName(s.name)}/  — ${escapePyTripleQuoted(s.description)}`)
+        .join('\n')
+    : '  (no skills assigned)';
+
+  return `"""Agent: ${agent.name}
+
+Generated by DeepSkills — LangChain Deep Agents (Python).
+
+Skills:
+${skillDirComment}
+"""
+
+import asyncio
+from typing import Any
+
+from deepagents import create_deep_agent
+${skillImports}
+
+
+# System prompt assembled from the agent persona and its objectives.
+INSTRUCTIONS = """${instructions}
+"""
+
+
+# Assemble the Deep Agent with the configured tools and system prompt.
+agent = create_deep_agent(
+    tools=[
+${toolsList}
+    ],
+    instructions=INSTRUCTIONS,
+)
+
+
+async def chat(
+    user_message: str,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    """Send a message to the agent and return its reply.
+
+    Args:
+        user_message: The user's most recent message.
+        history: Optional list of prior turns, each {"role": ..., "content": ...}.
+
+    Returns:
+        The assistant's textual reply.
+    """
+    history = history or []
+    messages: list[dict[str, Any]] = [
+        *[{"role": m["role"], "content": m["content"]} for m in history],
+        {"role": "user", "content": user_message},
+    ]
+    result = await agent.ainvoke({"messages": messages})
+    last = result["messages"][-1]
+    content = getattr(last, "content", None)
+    if content is None and isinstance(last, dict):
+        content = last.get("content", "")
+    return content if isinstance(content, str) else str(content)
+
+
+# Usage:
+# reply = asyncio.run(chat("Hello, what can you do?"))
+# print(reply)
 `;
 }

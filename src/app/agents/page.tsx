@@ -4,7 +4,10 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   DEFAULT_SKILLS, Agent, Skill, DatabaseConnection, FileFolder, FileRecord
 } from "@/lib/store";
-import { generateAgentCode, generateSkillCode } from "@/lib/code-generator";
+import {
+  generateAgentCode, generateSkillCode,
+  generateAgentCodePython, generateSkillCodePython,
+} from "@/lib/code-generator";
 import { Button } from "@/components/ui/button";
 import {
   Card, CardHeader, CardTitle, CardDescription,
@@ -121,6 +124,7 @@ export default function AgentsPage() {
   const [editingAgent, setEditingAgent]   = useState<Agent | null>(null);
   const [viewCodeAgent, setViewCodeAgent] = useState<Agent | null>(null);
   const [codeTab, setCodeTab]             = useState<'agent' | string>('agent');
+  const [codeLang, setCodeLang]           = useState<'typescript' | 'python'>('typescript');
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [roleDesc, setRoleDesc]     = useState("");
@@ -1037,18 +1041,34 @@ export default function AgentsPage() {
           .map(id => availableSkills.find(s => s.id === id))
           .filter(Boolean) as Skill[];
 
+        const ext = codeLang === 'python' ? 'py' : 'ts';
+        const agentFile = `agent.${ext}`;
         const tabs = [
-          { key: 'agent', label: 'agent.ts' },
-          ...agentSkills.map(s => ({ key: s.id, label: `skills/${s.name.toLowerCase().replace(/\s+/g, '_')}.ts` })),
+          { key: 'agent', label: agentFile },
+          ...agentSkills.map(s => ({
+            key: s.id,
+            label: `skills/${s.name.toLowerCase().replace(/\s+/g, '_')}.${ext}`,
+          })),
         ];
 
+        // Python is generated read-only on every render — saved custom code is
+        // TypeScript-only (agent.code), so the editable path stays on the TS view.
         const getCode = (tab: string) => {
-          if (tab === 'agent') return viewCodeAgent.code || generateAgentCode(viewCodeAgent, availableSkills);
+          if (tab === 'agent') {
+            return codeLang === 'python'
+              ? generateAgentCodePython(viewCodeAgent, availableSkills)
+              : viewCodeAgent.code || generateAgentCode(viewCodeAgent, availableSkills);
+          }
           const skill = agentSkills.find(s => s.id === tab);
-          return skill ? generateSkillCode(skill) : '';
+          if (!skill) return '';
+          return codeLang === 'python'
+            ? generateSkillCodePython(skill)
+            : generateSkillCode(skill);
         };
 
         const activeTab = tabs.find(t => t.key === codeTab) ?? tabs[0];
+        const isAgentTab = codeTab === 'agent';
+        const editable = isAgentTab && codeLang === 'typescript';
 
         return (
           <Dialog open={!!viewCodeAgent} onOpenChange={(open) => { if (!open) setViewCodeAgent(null); }}>
@@ -1057,10 +1077,31 @@ export default function AgentsPage() {
               aria-label={`Source code for ${viewCodeAgent.name}`}
             >
               <DialogHeader className="px-4 pt-4 pb-0 shrink-0">
-                <DialogTitle className="text-base flex items-center gap-2 font-mono">
-                  <Code2 className="size-4 text-accent" />
-                  <span className="text-accent">{viewCodeAgent.name}</span>
-                  <span className="text-muted-foreground font-normal">/ source</span>
+                <DialogTitle className="text-base flex items-center justify-between gap-2 font-mono">
+                  <div className="flex items-center gap-2">
+                    <Code2 className="size-4 text-accent" />
+                    <span className="text-accent">{viewCodeAgent.name}</span>
+                    <span className="text-muted-foreground font-normal">/ source</span>
+                  </div>
+
+                  {/* TS / Python language toggle */}
+                  <div className="flex items-center rounded-md border border-[#30363d] overflow-hidden text-[10px]" role="tablist" aria-label="Language">
+                    {(['typescript', 'python'] as const).map(lang => (
+                      <button
+                        key={lang}
+                        role="tab"
+                        aria-selected={codeLang === lang}
+                        onClick={() => setCodeLang(lang)}
+                        className={`px-3 py-1 transition-colors ${
+                          codeLang === lang
+                            ? 'bg-accent/20 text-accent'
+                            : 'text-[#8b949e] hover:text-[#c9d1d9]'
+                        }`}
+                      >
+                        {lang === 'typescript' ? 'TypeScript' : 'Python'}
+                      </button>
+                    ))}
+                  </div>
                 </DialogTitle>
               </DialogHeader>
 
@@ -1084,12 +1125,12 @@ export default function AgentsPage() {
 
               <div className="flex-1 min-h-0 p-0">
                 <CodeEditor
-                  key={codeTab}
+                  key={`${codeTab}-${codeLang}`}
                   code={getCode(codeTab)}
                   filename={activeTab.label}
-                  language="typescript"
-                  editable={codeTab === 'agent'}
-                  onSave={handleSaveAgentCode}
+                  language={codeLang}
+                  editable={editable}
+                  onSave={editable ? handleSaveAgentCode : undefined}
                   className="h-full rounded-none border-0"
                 />
               </div>
