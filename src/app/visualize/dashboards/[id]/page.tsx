@@ -221,7 +221,8 @@ export default function DashboardEditorPage() {
         setWidgetOrder(prev => [...prev, json.data.id]);
         toast({ title: `"${ws.name}" added to dashboard` });
       } else {
-        toast({ title: "Failed to add chart", description: json.error, variant: "destructive" });
+        const msg = typeof json.error === "string" ? json.error : json.error?.message ?? "Unknown error";
+        toast({ title: "Failed to add chart", description: msg, variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Failed to add chart", description: e?.message, variant: "destructive" });

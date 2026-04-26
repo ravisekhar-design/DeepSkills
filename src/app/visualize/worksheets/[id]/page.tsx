@@ -538,7 +538,8 @@ export default function WorksheetEditorPage() {
         setPinSuccess({ id: dashboardId, name: dash?.name ?? "Dashboard" });
         setDashboards(prev => prev.map(d => d.id === dashboardId ? { ...d, widgetCount: (d.widgetCount ?? 0) + 1 } : d));
       } else {
-        toast({ title: "Failed to add chart", description: json.error, variant: "destructive" });
+        const msg = typeof json.error === "string" ? json.error : json.error?.message ?? "Unknown error";
+        toast({ title: "Failed to add chart", description: msg, variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Failed to add chart", description: e?.message, variant: "destructive" });

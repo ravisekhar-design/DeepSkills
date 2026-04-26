@@ -120,7 +120,8 @@ export default function DatabasesPage() {
         setNewFolderOpen(false);
         toast({ title: 'Folder Created', description: `"${json.data.name}" is ready for uploads.` });
       } else {
-        toast({ title: 'Error', description: json.error, variant: 'destructive' });
+        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Unknown error';
+        toast({ title: 'Error', description: msg, variant: 'destructive' });
       }
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
@@ -214,9 +215,10 @@ export default function DatabasesPage() {
           });
           const json = await safeJson(res);
           if (!json.data) {
+            const errMsg = typeof json.error === 'string' ? json.error : json.error?.message;
             const msg = res.status === 413
               ? `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Use chunked upload.`
-              : json.error || 'unknown error';
+              : errMsg || 'unknown error';
             failures.push(`${file.name}: ${msg}`);
             setUploadProgress({ done: i + 1, total: files.length });
             continue;
@@ -272,7 +274,8 @@ export default function DatabasesPage() {
           size: file.size,
         });
       } else {
-        toast({ title: 'Load Failed', description: json.error, variant: 'destructive' });
+        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Unknown error';
+        toast({ title: 'Load Failed', description: msg, variant: 'destructive' });
         setViewingFile(null);
       }
     } catch (err: any) {
@@ -353,8 +356,9 @@ export default function DatabasesPage() {
         setTestResults(prev => ({ ...prev, [conn.id]: { ok: true, msg: json.message } }));
         toast({ title: "Connection OK", description: json.message });
       } else {
-        setTestResults(prev => ({ ...prev, [conn.id]: { ok: false, msg: json.error } }));
-        toast({ title: "Connection Failed", description: json.error, variant: "destructive" });
+        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Connection failed';
+        setTestResults(prev => ({ ...prev, [conn.id]: { ok: false, msg } }));
+        toast({ title: "Connection Failed", description: msg, variant: "destructive" });
       }
     } catch (e: any) {
       setTestResults(prev => ({ ...prev, [conn.id]: { ok: false, msg: e.message } }));

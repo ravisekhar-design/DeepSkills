@@ -167,7 +167,8 @@ export default function VisualizeHubPage() {
         toast({ title: `"${ws.name}" pinned to "${dash?.name ?? "dashboard"}"` });
         setDashboards(prev => prev.map(d => d.id === dashboardId ? { ...d, widgetCount: d.widgetCount + 1 } : d));
       } else {
-        toast({ title: "Failed to pin chart", description: json.error, variant: "destructive" });
+        const msg = typeof json.error === "string" ? json.error : json.error?.message ?? "Unknown error";
+        toast({ title: "Failed to pin chart", description: msg, variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Failed to pin chart", description: e?.message, variant: "destructive" });
