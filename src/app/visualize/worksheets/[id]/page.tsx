@@ -514,6 +514,75 @@ export default function WorksheetEditorPage() {
         color: PALETTE[i % PALETTE.length],
       }));
 
+    // ── Tableau-style Color mark ────────────────────────────────────────────
+    // When the user puts a DIMENSION on Color and there's a single measure on
+    // the value shelf, pivot the data so every distinct value of the color
+    // dimension becomes its own series with its own colour. This is the
+    // canonical Tableau behaviour.
+    //
+    // We only do this for chart types where multi-series rendering makes sense
+    // (the catch-all path below). Scatter/bubble/sankey/table/measure-only
+    // charts have their own rendering paths above and are intentionally
+    // skipped here.
+    const PIVOT_COMPATIBLE: ChartType[] = [
+      "bar", "stacked_bar", "horizontal_bar", "line", "area", "composed",
+    ];
+    const colorPill = cfg.marks.color;
+    const measurePills = measCols.filter(p => p.role === "measure");
+    if (
+      colorPill
+      && colorPill.role === "dimension"
+      && measurePills.length === 1
+      && xKey
+      && PIVOT_COMPATIBLE.includes(cfg.chartType)
+    ) {
+      const m = measurePills[0];
+      const measureKey = m.alias || `${m.aggregation ?? "sum"}_${m.fieldName}`;
+      const colorKey = colorPill.fieldName;
+
+      // Preserve the order in which color values first appear so the legend
+      // stays stable across re-runs.
+      const colorValues: string[] = [];
+      const seen = new Set<string>();
+      for (const r of rows) {
+        const v = r[colorKey] === undefined || r[colorKey] === null
+          ? "(blank)"
+          : String(r[colorKey]);
+        if (!seen.has(v)) { seen.add(v); colorValues.push(v); }
+      }
+
+      // Pivot: collapse rows so each xKey value has one row containing one
+      // numeric column per color value.
+      const pivotMap = new Map<string, Record<string, unknown>>();
+      for (const r of rows) {
+        const xv = r[xKey];
+        const xStr = xv === undefined || xv === null ? "" : String(xv);
+        if (!pivotMap.has(xStr)) pivotMap.set(xStr, { [xKey]: xv });
+        const entry = pivotMap.get(xStr)!;
+        const cv = r[colorKey] === undefined || r[colorKey] === null
+          ? "(blank)"
+          : String(r[colorKey]);
+        entry[cv] = r[measureKey];
+      }
+
+      const pivotedData = Array.from(pivotMap.values());
+      const pivotedSeries = colorValues.map((v, i) => ({
+        dataKey: v,
+        name: v,
+        color: PALETTE[i % PALETTE.length],
+      }));
+
+      return {
+        title: worksheet.name,
+        chartType: cfg.chartType as any,
+        xKey,
+        series: pivotedSeries,
+        data: pivotedData,
+        sql: null,
+        showLabels: cfg.options.showLabels,
+      };
+    }
+
     if ((cfg.chartType === "scatter" || cfg.chartType === "bubble") && series.length >= 2) {
       // For bubble, a Marks "Size" pill takes precedence as the z-axis (size)
       // measure, so the user can keep series[0]/[1] free for X/Y.
@@ -968,11 +1037,11 @@ export default function WorksheetEditorPage() {
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Marks</p>
                 <div className="space-y-1.5">
-                  <MarkSlot label="Color"   icon={Palette}    pill={worksheet.config.marks.color}  onDrop={d => handleDrop("color", d)}  onRemove={() => removePill("color")}  />
-                  <MarkSlot label="Size"    icon={Settings2}  pill={worksheet.config.marks.size}   onDrop={d => handleDrop("size", d)}   onRemove={() => removePill("size")}   hint={worksheet.config.chartType === "bubble" ? undefined : "Used for bubble charts"} />
-                  <MarkSlot label="Label"   icon={Tag}        pill={worksheet.config.marks.label}  onDrop={d => handleDrop("label", d)}  onRemove={() => removePill("label")}  />
+                  <MarkSlot label="Color"   icon={Palette}    pill={worksheet.config.marks.color}  onDrop={d => handleDrop("color", d)}  onRemove={() => removePill("color")}  hint="Drop a dimension — each distinct value gets its own series colour" />
+                  <MarkSlot label="Size"    icon={Settings2}  pill={worksheet.config.marks.size}   onDrop={d => handleDrop("size", d)}   onRemove={() => removePill("size")}   hint="Drives bubble-chart size" />
+                  <MarkSlot label="Label"   icon={Tag}        pill={worksheet.config.marks.label}  onDrop={d => handleDrop("label", d)}  onRemove={() => removePill("label")}  hint="Renames the series in the legend" />
                   <MarkSlot label="Detail"  icon={Layers}     pill={worksheet.config.marks.detail} onDrop={d => handleDrop("detail", d)} onRemove={() => removePill("detail")} hint="Adds an extra group-by dimension" />
-                  <MarkSlot label="Shape"   icon={Triangle}   pill={worksheet.config.marks.shape}  onDrop={d => handleDrop("shape", d)}  onRemove={() => removePill("shape")}  hint="Scatter / line markers" />
+                  <MarkSlot label="Shape"   icon={Triangle}   pill={worksheet.config.marks.shape}  onDrop={d => handleDrop("shape", d)}  onRemove={() => removePill("shape")}  hint="Scatter / line markers (renderer support coming)" />
                   <MultiMarkSlot
                     label="Tooltip"
                     icon={FilterIcon}

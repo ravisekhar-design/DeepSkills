@@ -2,61 +2,55 @@
 /**
  * AI-powered worksheet generation — server action.
  *
- * Given a SemanticModel's fields and a natural-language prompt, returns an
- * `AIWorksheetSuggestion`. The non-async helpers and the result type live in
- * `@/lib/worksheet/ai-suggestion` because every export from a `'use server'`
- * module must be an async function — that's the contract Next.js enforces in
- * Turbopack builds. Splitting them keeps this file as a clean server-only
- * surface.
+ * IMPORTANT: We cannot use LangChain's withStructuredOutput() here because
+ * Google Gemini's schema parser rejects JSON Schema $ref nodes, and zod's
+ * to-JSON-Schema serializer emits $ref any time a sub-schema is reused
+ * (which it is for our shelf-field shape — used by both columns and rows).
+ * The portable fix is the same one chart-generation.ts uses: prompt the
+ * model for raw JSON and parse manually.
  */
 
-import { z } from 'zod';
 import { getLangChainModel } from '../langchain';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import type { AIWorksheetSuggestion } from '@/lib/worksheet/ai-suggestion';
+import type { ChartType } from '@/lib/worksheet/types';
+import type { AggFunc } from '@/lib/semantic/types';
 
-// ── Output schema ─────────────────────────────────────────────────────────────
+const VALID_CHART_TYPES: ChartType[] = [
+  'bar', 'horizontal_bar', 'stacked_bar',
+  'line', 'area', 'pie', 'donut',
+  'scatter', 'bubble', 'kpi', 'table',
+  'heatmap', 'treemap',
+  'radar', 'waterfall', 'funnel', 'gauge',
+  'radial_bar', 'histogram', 'composed', 'sankey',
+];
 
-const ShelfFieldSchema = z.object({
-  fieldName: z.string().describe('Name of the field as it appears in the semantic model.'),
-  aggregation: z.enum(['sum', 'avg', 'count', 'count_distinct', 'min', 'max'])
-    .optional()
-    .describe('Aggregation function — only set for measure fields.'),
-  dateUnit: z.enum(['year', 'quarter', 'month', 'week', 'day'])
-    .optional()
-    .describe('Date binning unit — only set for date dimensions.'),
-});
-
-const AISuggestionSchema = z.object({
-  chartType: z.enum([
-    'bar', 'horizontal_bar', 'stacked_bar',
-    'line', 'area', 'pie', 'donut',
-    'scatter', 'bubble', 'kpi', 'table',
-    'heatmap', 'treemap',
-    'radar', 'waterfall', 'funnel', 'gauge',
-    'radial_bar', 'histogram', 'composed', 'sankey',
-  ]).describe('Best chart type for the prompt.'),
-  columns: z.array(ShelfFieldSchema).describe('Fields for the X-axis (or Y for horizontal_bar).'),
-  rows: z.array(ShelfFieldSchema).describe('Fields for the Y-axis (or X for horizontal_bar).'),
-  reasoning: z.string().describe('One short sentence explaining why this chart fits the prompt.'),
-  alternatives: z.array(z.object({
-    chartType: z.enum([
-      'bar', 'horizontal_bar', 'stacked_bar',
-      'line', 'area', 'pie', 'donut',
-      'scatter', 'bubble', 'treemap', 'radar',
-    ]),
-    label: z.string(),
-  })).optional().describe('1-2 alternative visualization styles the user could pick.'),
-});
-
-// ── Prompt ────────────────────────────────────────────────────────────────────
+const VALID_AGGS: AggFunc[] = ['sum', 'avg', 'count', 'count_distinct', 'min', 'max'];
+const VALID_DATE_UNITS = ['year', 'quarter', 'month', 'week', 'day'] as const;
 
 const SYSTEM = `You are a data-visualization expert. The user will give you:
   1) A list of available fields with their role (dimension/measure), data type, and display name.
   2) A natural-language description of what they want to see.
 
-Your job is to pick the best chart type, decide which fields belong on the
-Columns shelf (X-axis) and which on the Rows shelf (Y-axis), and assign the
-right aggregation to each measure.
+Pick the best chart type, decide which fields belong on Columns (X-axis)
+and which on Rows (Y-axis), and assign aggregations to measures.
+
+Respond with ONLY a JSON object matching this exact shape — no markdown,
+no code fences, no commentary:
+
+{
+  "chartType": "<one of: bar | horizontal_bar | stacked_bar | line | area | pie | donut | scatter | bubble | kpi | table | heatmap | treemap | radar | waterfall | funnel | gauge | radial_bar | histogram | composed | sankey>",
+  "columns": [
+    { "fieldName": "<exact name from list>", "aggregation": "<sum|avg|count|count_distinct|min|max>" (only for measures), "dateUnit": "<year|quarter|month|week|day>" (only for date dimensions) }
+  ],
+  "rows": [
+    { "fieldName": "...", "aggregation": "...", "dateUnit": "..." }
+  ],
+  "reasoning": "<one short sentence explaining the choice>",
+  "alternatives": [
+    { "chartType": "<chart type>", "label": "<short user-facing label>" }
+  ]
+}
 
 Rules:
 - Use only fieldName values from the provided list — never invent fields.
@@ -70,9 +64,32 @@ Rules:
 - For 'line' / 'area': dimension (preferably a date) on Columns, 1+ measures on Rows.
 - For 'sankey': two dimensions on Columns (source, target), one measure on Rows.
 - For date dimensions on time-series charts, set dateUnit ('month' is a good default).
-- Suggest 1-2 reasonable alternative chart types when applicable.
+- Suggest 1-2 reasonable alternative chart types when applicable.`;
 
-Return ONLY the structured object that matches the schema — no extra text.`;
+// ── Sanitisation: trust nothing the model returned ────────────────────────────
+
+function pickChartType(v: unknown): ChartType {
+  return VALID_CHART_TYPES.includes(v as ChartType) ? (v as ChartType) : 'bar';
+}
+
+function sanitiseShelf(raw: any): AIWorksheetSuggestion['columns'] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(item => item && typeof item.fieldName === 'string')
+    .map(item => ({
+      fieldName: String(item.fieldName),
+      aggregation: VALID_AGGS.includes(item.aggregation) ? item.aggregation : undefined,
+      dateUnit: VALID_DATE_UNITS.includes(item.dateUnit) ? item.dateUnit : undefined,
+    }));
+}
+
+function sanitiseAlternatives(raw: any): AIWorksheetSuggestion['alternatives'] {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter(item => item && VALID_CHART_TYPES.includes(item.chartType) && typeof item.label === 'string')
+    .map(item => ({ chartType: item.chartType as ChartType, label: String(item.label) }))
+    .slice(0, 3);
+}
 
 // ── Server action ─────────────────────────────────────────────────────────────
 
@@ -84,8 +101,7 @@ export async function generateWorksheetSuggestion(input: {
   if (!input.prompt?.trim()) throw new Error('Prompt is required.');
   if (!input.fields?.length) throw new Error('Model has no fields to chart.');
 
-  const model = await getLangChainModel(input.preferredModel);
-  const structured = (model as any).withStructuredOutput(AISuggestionSchema);
+  const llm = await getLangChainModel(input.preferredModel);
 
   const fieldList = input.fields
     .map(f => `- ${f.name} (displayName="${f.displayName}", role=${f.role}, type=${f.dataType})`)
@@ -96,10 +112,36 @@ ${fieldList}
 
 User request: "${input.prompt}"`;
 
-  const result = await structured.invoke([
-    { role: 'system', content: SYSTEM },
-    { role: 'user', content: userMessage },
+  const response = await (llm as any).invoke([
+    new SystemMessage(SYSTEM),
+    new HumanMessage(userMessage),
   ]);
 
-  return result as AIWorksheetSuggestion;
+  const text = typeof response.content === 'string'
+    ? response.content
+    : JSON.stringify(response.content);
+
+  // Models occasionally wrap JSON in code fences or add a sentence around it.
+  // Grab the first {...} balanced span we can find.
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('AI did not return a JSON object. Try a more specific prompt.');
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e: any) {
+    throw new Error(`Could not parse AI response as JSON: ${e?.message ?? 'unknown'}`);
+  }
+
+  return {
+    chartType: pickChartType(parsed.chartType),
+    columns: sanitiseShelf(parsed.columns),
+    rows: sanitiseShelf(parsed.rows),
+    reasoning: typeof parsed.reasoning === 'string'
+      ? parsed.reasoning
+      : 'Generated from your prompt.',
+    alternatives: sanitiseAlternatives(parsed.alternatives),
+  };
 }
