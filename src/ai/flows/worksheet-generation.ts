@@ -1,19 +1,18 @@
 'use server';
 /**
- * AI-powered worksheet generation.
+ * AI-powered worksheet generation — server action.
  *
- * Given a SemanticModel's fields and a natural-language prompt, returns a
- * WorksheetConfig — i.e. a fully editable manual-builder configuration. The
- * difference from chart-generation.ts is that this returns *which fields go
- * on which shelves with which aggregations*, so the user can switch back
- * to Manual mode and keep editing.
+ * Given a SemanticModel's fields and a natural-language prompt, returns an
+ * `AIWorksheetSuggestion`. The non-async helpers and the result type live in
+ * `@/lib/worksheet/ai-suggestion` because every export from a `'use server'`
+ * module must be an async function — that's the contract Next.js enforces in
+ * Turbopack builds. Splitting them keeps this file as a clean server-only
+ * surface.
  */
 
 import { z } from 'zod';
 import { getLangChainModel } from '../langchain';
-import type { WorksheetConfig, ChartType, ShelfPill } from '@/lib/worksheet/types';
-import { defaultConfig } from '@/lib/worksheet/types';
-import type { SemanticModel, AggFunc, FieldRole, DataType } from '@/lib/semantic/types';
+import type { AIWorksheetSuggestion } from '@/lib/worksheet/ai-suggestion';
 
 // ── Output schema ─────────────────────────────────────────────────────────────
 
@@ -49,8 +48,6 @@ const AISuggestionSchema = z.object({
   })).optional().describe('1-2 alternative visualization styles the user could pick.'),
 });
 
-export type AIWorksheetSuggestion = z.infer<typeof AISuggestionSchema>;
-
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 const SYSTEM = `You are a data-visualization expert. The user will give you:
@@ -77,51 +74,6 @@ Rules:
 
 Return ONLY the structured object that matches the schema — no extra text.`;
 
-// ── Apply suggestion to WorksheetConfig ───────────────────────────────────────
-
-function pillFromField(
-  fieldName: string,
-  agg: AggFunc | undefined,
-  dateUnit: 'year' | 'quarter' | 'month' | 'week' | 'day' | undefined,
-  model: SemanticModel,
-): ShelfPill | null {
-  // Look in fields, then calculations.
-  const field = model.fields.find(f => f.name === fieldName)
-    || model.calculations.find(c => c.name === fieldName);
-  if (!field) return null;
-  return {
-    fieldName: field.name,
-    displayName: field.displayName,
-    role: field.role as FieldRole,
-    dataType: field.dataType as DataType,
-    aggregation: field.role === 'measure' ? (agg ?? 'sum') : undefined,
-    dateUnit: field.role === 'dimension' && field.dataType === 'date'
-      ? (dateUnit ?? 'month')
-      : undefined,
-  };
-}
-
-/**
- * Convert an AI suggestion into a fully-formed WorksheetConfig that drops
- * straight into the manual builder.
- */
-export function applySuggestionToConfig(
-  suggestion: AIWorksheetSuggestion,
-  model: SemanticModel,
-): WorksheetConfig {
-  const base = defaultConfig();
-  return {
-    ...base,
-    chartType: suggestion.chartType as ChartType,
-    columns: suggestion.columns
-      .map(f => pillFromField(f.fieldName, f.aggregation, f.dateUnit, model))
-      .filter(Boolean) as ShelfPill[],
-    rows: suggestion.rows
-      .map(f => pillFromField(f.fieldName, f.aggregation, f.dateUnit, model))
-      .filter(Boolean) as ShelfPill[],
-  };
-}
-
 // ── Server action ─────────────────────────────────────────────────────────────
 
 export async function generateWorksheetSuggestion(input: {
@@ -144,10 +96,10 @@ ${fieldList}
 
 User request: "${input.prompt}"`;
 
-  const result: AIWorksheetSuggestion = await structured.invoke([
+  const result = await structured.invoke([
     { role: 'system', content: SYSTEM },
     { role: 'user', content: userMessage },
   ]);
 
-  return result;
+  return result as AIWorksheetSuggestion;
 }

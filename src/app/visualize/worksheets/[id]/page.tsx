@@ -31,11 +31,11 @@ import { semanticClientService } from "@/services/semantic.service";
 import { worksheetClientService } from "@/services/worksheet.service";
 import { ChartRenderer } from "@/components/chart-renderer";
 import type { GeneratedChartConfig } from "@/ai/flows/chart-generation";
+import { generateWorksheetSuggestion } from "@/ai/flows/worksheet-generation";
 import {
-  generateWorksheetSuggestion,
   applySuggestionToConfig,
   type AIWorksheetSuggestion,
-} from "@/ai/flows/worksheet-generation";
+} from "@/lib/worksheet/ai-suggestion";
 import type { SemanticModel, FieldDef, CalcField, AggFunc, DataType } from "@/lib/semantic/types";
 import type {
   Worksheet, WorksheetConfig, ShelfPill, FilterPill, ChartType,
