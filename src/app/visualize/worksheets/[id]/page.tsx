@@ -31,6 +31,11 @@ import { semanticClientService } from "@/services/semantic.service";
 import { worksheetClientService } from "@/services/worksheet.service";
 import { ChartRenderer } from "@/components/chart-renderer";
 import type { GeneratedChartConfig } from "@/ai/flows/chart-generation";
+import {
+  generateWorksheetSuggestion,
+  applySuggestionToConfig,
+  type AIWorksheetSuggestion,
+} from "@/ai/flows/worksheet-generation";
 import type { SemanticModel, FieldDef, CalcField, AggFunc, DataType } from "@/lib/semantic/types";
 import type {
   Worksheet, WorksheetConfig, ShelfPill, FilterPill, ChartType,
@@ -182,6 +187,12 @@ export default function WorksheetEditorPage() {
   const [fieldSearch, setFieldSearch] = useState("");
   const [exporting, setExporting] = useState<string | null>(null);
 
+  // Builder mode toggle: "manual" (default Tableau-style shelves) or "ai" (prompt → suggestion).
+  const [builderMode, setBuilderMode] = useState<"manual" | "ai">("manual");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<AIWorksheetSuggestion | null>(null);
+
   // Pin to Dashboard state
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [dashboards, setDashboards] = useState<Array<{ id: string; name: string; widgetCount?: number }>>([]);
@@ -265,10 +276,11 @@ export default function WorksheetEditorPage() {
 
   // ── Drag handling ──────────────────────────────────────────────────────────
 
-  const handleDrop = (
-    target: "columns" | "rows" | "filters" | "color" | "size" | "label",
-    rawData: string,
-  ) => {
+  type DropTarget =
+    | "columns" | "rows" | "filters"
+    | "color" | "size" | "label" | "detail" | "shape" | "tooltip";
+
+  const handleDrop = (target: DropTarget, rawData: string) => {
     if (!worksheet) return;
     try {
       const f = JSON.parse(rawData) as FieldDef | CalcField;
@@ -290,21 +302,35 @@ export default function WorksheetEditorPage() {
           values: [],
         };
         updateConfig({ filters: [...cfg.filters, fp] });
-      } else if (target === "color") updateConfig({ marks: { ...cfg.marks, color: pill } });
-      else if (target === "size")  updateConfig({ marks: { ...cfg.marks, size: pill } });
-      else if (target === "label") updateConfig({ marks: { ...cfg.marks, label: pill } });
+      } else if (target === "color")   updateConfig({ marks: { ...cfg.marks, color: pill } });
+      else if (target === "size")      updateConfig({ marks: { ...cfg.marks, size: pill } });
+      else if (target === "label")     updateConfig({ marks: { ...cfg.marks, label: pill } });
+      else if (target === "detail")    updateConfig({ marks: { ...cfg.marks, detail: pill } });
+      else if (target === "shape")     updateConfig({ marks: { ...cfg.marks, shape: pill } });
+      else if (target === "tooltip") {
+        const existing = cfg.marks.tooltip ?? [];
+        // Avoid duplicates
+        if (existing.some(t => t.fieldName === pill.fieldName)) return;
+        updateConfig({ marks: { ...cfg.marks, tooltip: [...existing, pill] } });
+      }
     } catch (e) { console.error(e); }
   };
 
-  const removePill = (target: "columns" | "rows" | "filters" | "color" | "size" | "label", index?: number) => {
+  const removePill = (target: DropTarget, index?: number) => {
     if (!worksheet) return;
     const cfg = worksheet.config;
     if (target === "columns" && index !== undefined) updateConfig({ columns: cfg.columns.filter((_, i) => i !== index) });
     else if (target === "rows" && index !== undefined) updateConfig({ rows: cfg.rows.filter((_, i) => i !== index) });
     else if (target === "filters" && index !== undefined) updateConfig({ filters: cfg.filters.filter((_, i) => i !== index) });
-    else if (target === "color") updateConfig({ marks: { ...cfg.marks, color: undefined } });
-    else if (target === "size")  updateConfig({ marks: { ...cfg.marks, size: undefined } });
-    else if (target === "label") updateConfig({ marks: { ...cfg.marks, label: undefined } });
+    else if (target === "color")   updateConfig({ marks: { ...cfg.marks, color: undefined } });
+    else if (target === "size")    updateConfig({ marks: { ...cfg.marks, size: undefined } });
+    else if (target === "label")   updateConfig({ marks: { ...cfg.marks, label: undefined } });
+    else if (target === "detail")  updateConfig({ marks: { ...cfg.marks, detail: undefined } });
+    else if (target === "shape")   updateConfig({ marks: { ...cfg.marks, shape: undefined } });
+    else if (target === "tooltip" && index !== undefined) {
+      const existing = cfg.marks.tooltip ?? [];
+      updateConfig({ marks: { ...cfg.marks, tooltip: existing.filter((_, i) => i !== index) } });
+    }
   };
 
   const updatePillAt = (target: "columns" | "rows", index: number, updates: Partial<ShelfPill>) => {
@@ -312,6 +338,49 @@ export default function WorksheetEditorPage() {
     const cfg = worksheet.config;
     const list = target === "columns" ? cfg.columns : cfg.rows;
     updateConfig({ [target]: list.map((p, i) => i === index ? { ...p, ...updates } : p) } as any);
+  };
+
+  // ── AI mode: generate a suggestion → apply it to the worksheet config ───
+
+  const runAiSuggestion = async (overridePrompt?: string) => {
+    if (!worksheet || !model) return;
+    const prompt = (overridePrompt ?? aiPrompt).trim();
+    if (!prompt) {
+      toast({ title: "Enter a prompt first", variant: "destructive" });
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const suggestion = await generateWorksheetSuggestion({
+        prompt,
+        fields: [
+          ...model.fields.map(f => ({
+            name: f.name, displayName: f.displayName,
+            role: f.role, dataType: f.dataType,
+          })),
+          ...model.calculations.map(c => ({
+            name: c.name, displayName: c.displayName,
+            role: c.role, dataType: c.dataType,
+          })),
+        ],
+      });
+      setAiSuggestion(suggestion);
+      // Apply immediately so the live preview updates — the user can still tweak,
+      // re-prompt, or switch to Manual to keep editing.
+      const newConfig = applySuggestionToConfig(suggestion, model);
+      updateConfig(newConfig);
+      toast({ title: "Chart generated", description: suggestion.reasoning });
+    } catch (e: any) {
+      toast({ title: "AI generation failed", description: e?.message, variant: "destructive" });
+    }
+    setAiBusy(false);
+  };
+
+  // Quick-swap to one of the AI's alternative chart types without re-prompting.
+  const tryAlternative = (chartType: ChartType) => {
+    if (!worksheet) return;
+    updateConfig({ chartType });
+    toast({ title: `Switched to ${chartType}` });
   };
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -439,16 +508,32 @@ export default function WorksheetEditorPage() {
       .filter(p => p.role === "measure")
       .map((p, i) => ({
         dataKey: p.alias || `${p.aggregation ?? "sum"}_${p.fieldName}`,
-        name: `${p.aggregation ?? "sum"}(${p.displayName})`,
+        // Marks "Label" pill renames the series in the legend; falls back to
+        // the standard "agg(field)" string otherwise.
+        name: cfg.marks.label?.displayName ?? `${p.aggregation ?? "sum"}(${p.displayName})`,
         color: PALETTE[i % PALETTE.length],
       }));
 
     if ((cfg.chartType === "scatter" || cfg.chartType === "bubble") && series.length >= 2) {
+      // For bubble, a Marks "Size" pill takes precedence as the z-axis (size)
+      // measure, so the user can keep series[0]/[1] free for X/Y.
+      const sizePill = cfg.marks.size;
+      const sizeSeries = sizePill && sizePill.role === "measure"
+        ? {
+            dataKey: sizePill.alias
+              || `${sizePill.aggregation ?? "sum"}_${sizePill.fieldName}`,
+            name: `${sizePill.aggregation ?? "sum"}(${sizePill.displayName})`,
+            color: PALETTE[2],
+          }
+        : null;
+      const finalSeries = cfg.chartType === "bubble" && sizeSeries
+        ? [series[0], series[1], sizeSeries]
+        : series;
       return {
         title: worksheet.name,
         chartType: cfg.chartType as any,
         xKey: series[0]?.dataKey ?? xKey ?? "",
-        series,
+        series: finalSeries,
         data: rows,
         sql: null,
         showLabels: cfg.options.showLabels,
@@ -624,6 +709,31 @@ export default function WorksheetEditorPage() {
           </Badge>
         )}
         <div className="flex-1" />
+
+        {/* Manual / AI mode toggle */}
+        <div className="flex items-center rounded-md border border-border overflow-hidden text-[11px] mr-1" role="tablist" aria-label="Builder mode">
+          <button
+            role="tab"
+            aria-selected={builderMode === "manual"}
+            onClick={() => setBuilderMode("manual")}
+            className={`px-3 h-8 transition-colors ${
+              builderMode === "manual" ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Manual
+          </button>
+          <button
+            role="tab"
+            aria-selected={builderMode === "ai"}
+            onClick={() => setBuilderMode("ai")}
+            className={`px-3 h-8 transition-colors flex items-center gap-1 ${
+              builderMode === "ai" ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Sparkles className="size-3" /> AI
+          </button>
+        </div>
+
         <Button size="sm" variant="outline" className="gap-1.5 h-8" onClick={execute} disabled={executing || !model}>
           {executing ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
           Run
@@ -704,34 +814,90 @@ export default function WorksheetEditorPage() {
         {/* Center: Shelves + Chart */}
         <div className="flex-1 flex flex-col overflow-hidden">
 
-          {/* Shelves */}
-          <div className="border-b border-border bg-muted/20 shrink-0 px-3 py-2 space-y-1.5">
-            <Shelf
-              label="Columns"
-              hint="X-axis — drop dimension (green) fields here"
-              pills={worksheet.config.columns}
-              onDrop={d => handleDrop("columns", d)}
-              onRemove={i => removePill("columns", i)}
-              onUpdate={(i, u) => updatePillAt("columns", i, u)}
-            />
-            <Shelf
-              label="Rows"
-              hint="Y-axis — drop measure (blue) fields here"
-              pills={worksheet.config.rows}
-              onDrop={d => handleDrop("rows", d)}
-              onRemove={i => removePill("rows", i)}
-              onUpdate={(i, u) => updatePillAt("rows", i, u)}
-            />
-            <Shelf
-              label="Filters"
-              hint="Restrict data — drop any field here"
-              pills={worksheet.config.filters}
-              onDrop={d => handleDrop("filters", d)}
-              onRemove={i => removePill("filters", i)}
-              onUpdate={() => {}}
-              isFilter
-            />
-          </div>
+          {/* Shelves (Manual mode) — or AI prompt panel (AI mode). The chart
+              preview below is rendered identically in both modes, so flipping
+              between them never disrupts the live preview. */}
+          {builderMode === "manual" ? (
+            <div className="border-b border-border bg-muted/20 shrink-0 px-3 py-2 space-y-1.5">
+              <Shelf
+                label="Columns"
+                hint="X-axis — drop dimension (green) fields here"
+                pills={worksheet.config.columns}
+                onDrop={d => handleDrop("columns", d)}
+                onRemove={i => removePill("columns", i)}
+                onUpdate={(i, u) => updatePillAt("columns", i, u)}
+              />
+              <Shelf
+                label="Rows"
+                hint="Y-axis — drop measure (blue) fields here"
+                pills={worksheet.config.rows}
+                onDrop={d => handleDrop("rows", d)}
+                onRemove={i => removePill("rows", i)}
+                onUpdate={(i, u) => updatePillAt("rows", i, u)}
+              />
+              <Shelf
+                label="Filters"
+                hint="Restrict data — drop any field here"
+                pills={worksheet.config.filters}
+                onDrop={d => handleDrop("filters", d)}
+                onRemove={i => removePill("filters", i)}
+                onUpdate={() => {}}
+                isFilter
+              />
+            </div>
+          ) : (
+            <div className="border-b border-border bg-muted/20 shrink-0 px-3 py-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <Sparkles className="size-4 text-accent mt-2 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <Input
+                    value={aiPrompt}
+                    onChange={e => setAiPrompt(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !aiBusy) runAiSuggestion(); }}
+                    placeholder='Try: "Show monthly revenue by region as a stacked bar"'
+                    className="h-9 text-sm"
+                    disabled={!model || aiBusy}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    AI picks the chart type, maps fields to shelves, and renders a live preview. Switch back to Manual any time to keep editing.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-9 gap-1.5 shrink-0"
+                  onClick={() => runAiSuggestion()}
+                  disabled={!model || aiBusy || !aiPrompt.trim()}
+                >
+                  {aiBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  Generate
+                </Button>
+              </div>
+
+              {/* Suggestion banner — reasoning + alternative chart types */}
+              {aiSuggestion && (
+                <div className="rounded-md border border-accent/20 bg-accent/5 p-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] gap-1 border-accent/40 text-accent">
+                    <Sparkles className="size-2.5" /> {aiSuggestion.chartType}
+                  </Badge>
+                  <p className="text-[11px] text-muted-foreground flex-1 min-w-[200px]">{aiSuggestion.reasoning}</p>
+                  {aiSuggestion.alternatives && aiSuggestion.alternatives.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">Try:</span>
+                      {aiSuggestion.alternatives.map(alt => (
+                        <button
+                          key={alt.chartType}
+                          onClick={() => tryAlternative(alt.chartType as ChartType)}
+                          className="text-[10px] px-2 py-0.5 rounded-full border border-border hover:border-accent hover:text-accent transition-colors"
+                        >
+                          {alt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Chart preview */}
           <div className="flex-1 overflow-hidden p-4 bg-background">
@@ -802,9 +968,18 @@ export default function WorksheetEditorPage() {
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Marks</p>
                 <div className="space-y-1.5">
-                  <MarkSlot label="Color" icon={Palette}   pill={worksheet.config.marks.color} onDrop={d => handleDrop("color", d)} onRemove={() => removePill("color")} />
-                  <MarkSlot label="Size"  icon={Settings2} pill={worksheet.config.marks.size}  onDrop={d => handleDrop("size", d)}  onRemove={() => removePill("size")}  />
-                  <MarkSlot label="Label" icon={Tag}       pill={worksheet.config.marks.label} onDrop={d => handleDrop("label", d)} onRemove={() => removePill("label")} />
+                  <MarkSlot label="Color"   icon={Palette}    pill={worksheet.config.marks.color}  onDrop={d => handleDrop("color", d)}  onRemove={() => removePill("color")}  />
+                  <MarkSlot label="Size"    icon={Settings2}  pill={worksheet.config.marks.size}   onDrop={d => handleDrop("size", d)}   onRemove={() => removePill("size")}   hint={worksheet.config.chartType === "bubble" ? undefined : "Used for bubble charts"} />
+                  <MarkSlot label="Label"   icon={Tag}        pill={worksheet.config.marks.label}  onDrop={d => handleDrop("label", d)}  onRemove={() => removePill("label")}  />
+                  <MarkSlot label="Detail"  icon={Layers}     pill={worksheet.config.marks.detail} onDrop={d => handleDrop("detail", d)} onRemove={() => removePill("detail")} hint="Adds an extra group-by dimension" />
+                  <MarkSlot label="Shape"   icon={Triangle}   pill={worksheet.config.marks.shape}  onDrop={d => handleDrop("shape", d)}  onRemove={() => removePill("shape")}  hint="Scatter / line markers" />
+                  <MultiMarkSlot
+                    label="Tooltip"
+                    icon={FilterIcon}
+                    pills={worksheet.config.marks.tooltip ?? []}
+                    onDrop={d => handleDrop("tooltip", d)}
+                    onRemove={(i) => removePill("tooltip", i)}
+                  />
                 </div>
               </div>
 
@@ -1087,6 +1262,14 @@ function Shelf({
   );
 }
 
+const DATE_UNIT_OPTIONS = [
+  { value: "year",    label: "Year" },
+  { value: "quarter", label: "Quarter" },
+  { value: "month",   label: "Month" },
+  { value: "week",    label: "Week" },
+  { value: "day",     label: "Day" },
+] as const;
+
 function Pill({
   pill, isFilter, onRemove, onUpdate,
 }: {
@@ -1096,22 +1279,90 @@ function Pill({
   onUpdate: (u: Partial<ShelfPill>) => void;
 }) {
   const Icon = fieldIcon(pill.dataType);
+  const [editingAlias, setEditingAlias] = useState(false);
+  const [aliasDraft, setAliasDraft] = useState(pill.alias ?? "");
+
+  const saveAlias = () => {
+    const trimmed = aliasDraft.trim();
+    onUpdate({ alias: trimmed || undefined });
+    setEditingAlias(false);
+  };
+
+  // Sort cycles: undefined → asc → desc → undefined
+  const cycleSort = () => {
+    const next = pill.sort === undefined ? "asc" : pill.sort === "asc" ? "desc" : undefined;
+    onUpdate({ sort: next });
+  };
+  const sortLabel = pill.sort === "asc" ? "↑" : pill.sort === "desc" ? "↓" : "⇅";
+
   return (
     <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border ${bgForRole(pill.role)}`}>
       <Icon className="size-2.5 shrink-0" />
+
+      {/* Aggregation selector for measure pills (not filters) */}
       {pill.role === "measure" && !isFilter && (
-        <Select value={pill.aggregation ?? "sum"} onValueChange={v => onUpdate({ aggregation: v as AggFunc })}>
-          <SelectTrigger className="h-4 w-auto px-1 py-0 text-[10px] border-0 bg-transparent focus:ring-0 gap-0.5">
+        <>
+          <Select value={pill.aggregation ?? "sum"} onValueChange={v => onUpdate({ aggregation: v as AggFunc })}>
+            <SelectTrigger className="h-4 w-auto px-1 py-0 text-[10px] border-0 bg-transparent focus:ring-0 gap-0.5">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AGG_OPTIONS.map(a => <SelectItem key={a} value={a} className="text-[10px]">{a}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <span>(</span>
+        </>
+      )}
+
+      {/* Alias rename — double-click pill name to edit. */}
+      {editingAlias ? (
+        <input
+          autoFocus
+          value={aliasDraft}
+          onChange={e => setAliasDraft(e.target.value)}
+          onBlur={saveAlias}
+          onKeyDown={e => {
+            if (e.key === "Enter") saveAlias();
+            if (e.key === "Escape") { setAliasDraft(pill.alias ?? ""); setEditingAlias(false); }
+          }}
+          className="bg-transparent border-b border-foreground/40 outline-none text-[11px] w-20"
+          placeholder={pill.displayName}
+        />
+      ) : (
+        <span
+          onDoubleClick={() => { setAliasDraft(pill.alias ?? ""); setEditingAlias(true); }}
+          title="Double-click to rename"
+          className="cursor-text"
+        >
+          {pill.alias || pill.displayName}
+        </span>
+      )}
+
+      {pill.role === "measure" && !isFilter && <span>)</span>}
+
+      {/* Date binning for date dimensions (not filters). */}
+      {pill.role === "dimension" && pill.dataType === "date" && !isFilter && (
+        <Select value={pill.dateUnit ?? "month"} onValueChange={v => onUpdate({ dateUnit: v as any })}>
+          <SelectTrigger className="h-4 w-auto px-1 py-0 text-[10px] border-0 bg-transparent focus:ring-0 gap-0.5 ml-0.5">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {AGG_OPTIONS.map(a => <SelectItem key={a} value={a} className="text-[10px]">{a}</SelectItem>)}
+            {DATE_UNIT_OPTIONS.map(u => <SelectItem key={u.value} value={u.value} className="text-[10px]">{u.label}</SelectItem>)}
           </SelectContent>
         </Select>
       )}
-      {pill.role === "measure" && !isFilter && <span>(</span>}
-      <span>{pill.displayName}</span>
-      {pill.role === "measure" && !isFilter && <span>)</span>}
+
+      {/* Sort toggle (not filters). */}
+      {!isFilter && (
+        <button
+          onClick={cycleSort}
+          title={`Sort: ${pill.sort ?? "default"}`}
+          className="ml-0.5 text-[10px] opacity-60 hover:opacity-100"
+        >
+          {sortLabel}
+        </button>
+      )}
+
       <button onClick={onRemove} className="ml-1 hover:text-destructive">
         <X className="size-2.5" />
       </button>
@@ -1122,9 +1373,15 @@ function Pill({
 // ── Mark Slot ─────────────────────────────────────────────────────────────────
 
 function MarkSlot({
-  label, icon: Icon, pill, onDrop, onRemove,
+  label, icon: Icon, pill, onDrop, onRemove, hint,
 }: {
-  label: string; icon: React.ElementType; pill?: ShelfPill; onDrop: (d: string) => void; onRemove: () => void;
+  label: string;
+  icon: React.ElementType;
+  pill?: ShelfPill;
+  onDrop: (d: string) => void;
+  onRemove: () => void;
+  /** Optional helper text shown when the slot is empty (e.g. "Bubble only"). */
+  hint?: string;
 }) {
   const [over, setOver] = useState(false);
   return (
@@ -1133,6 +1390,7 @@ function MarkSlot({
       onDragLeave={() => setOver(false)}
       onDrop={e => { e.preventDefault(); setOver(false); onDrop(e.dataTransfer.getData("text/plain")); }}
       className={`flex items-center gap-2 p-2 rounded-md border transition-colors ${over ? "border-accent bg-accent/10" : "border-border bg-card"}`}
+      title={hint}
     >
       <Icon className="size-3 text-muted-foreground shrink-0" />
       <span className="text-[10px] font-medium w-10 shrink-0">{label}</span>
@@ -1142,8 +1400,42 @@ function MarkSlot({
           <button onClick={onRemove}><X className="size-2.5" /></button>
         </div>
       ) : (
-        <span className="text-[10px] text-muted-foreground italic">drop here</span>
+        <span className="text-[10px] text-muted-foreground italic">{hint ?? "drop here"}</span>
       )}
+    </div>
+  );
+}
+
+// Multi-pill version (used for Tooltip — accepts multiple fields).
+function MultiMarkSlot({
+  label, icon: Icon, pills, onDrop, onRemove,
+}: {
+  label: string;
+  icon: React.ElementType;
+  pills: ShelfPill[];
+  onDrop: (d: string) => void;
+  onRemove: (i: number) => void;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={e => { e.preventDefault(); setOver(false); onDrop(e.dataTransfer.getData("text/plain")); }}
+      className={`flex items-start gap-2 p-2 rounded-md border transition-colors ${over ? "border-accent bg-accent/10" : "border-border bg-card"}`}
+    >
+      <Icon className="size-3 text-muted-foreground shrink-0 mt-0.5" />
+      <span className="text-[10px] font-medium w-10 shrink-0 mt-0.5">{label}</span>
+      <div className="flex-1 min-w-0 flex flex-wrap gap-1">
+        {pills.length === 0 ? (
+          <span className="text-[10px] text-muted-foreground italic">drop fields here</span>
+        ) : pills.map((p, i) => (
+          <div key={`${p.fieldName}_${i}`} className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border ${bgForRole(p.role)}`}>
+            <span className="truncate max-w-[80px]">{p.displayName}</span>
+            <button onClick={() => onRemove(i)}><X className="size-2.5" /></button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -48,6 +48,11 @@ export interface MarksCard {
   color?: ShelfPill;
   size?: ShelfPill;
   label?: ShelfPill;
+  /** Extra group-by dimension that does NOT drive color (Tableau "Detail"). */
+  detail?: ShelfPill;
+  /** Marker shape for scatter / line charts. */
+  shape?: ShelfPill;
+  /** Extra fields surfaced in the chart tooltip. */
   tooltip?: ShelfPill[];
 }
 
@@ -112,9 +117,11 @@ export function configToSemanticQuery(cfg: WorksheetConfig): SemanticQuery {
   const dimSource = isHoriz ? cfg.rows : cfg.columns;
   const measSource = isHoriz ? cfg.columns : cfg.rows;
 
-  // Marks color/size of dimension type also count as group dimensions
+  // Marks that act as additional group-by dimensions: Color and Detail.
+  // Both must be dimensions to make sense as grouping keys.
   const marksDims: ShelfPill[] = [];
-  if (cfg.marks.color && cfg.marks.color.role === 'dimension') marksDims.push(cfg.marks.color);
+  if (cfg.marks.color  && cfg.marks.color.role  === 'dimension') marksDims.push(cfg.marks.color);
+  if (cfg.marks.detail && cfg.marks.detail.role === 'dimension') marksDims.push(cfg.marks.detail);
 
   const dimensions: QueryDimension[] = [...dimSource, ...marksDims]
     .filter(p => p.role === 'dimension')
