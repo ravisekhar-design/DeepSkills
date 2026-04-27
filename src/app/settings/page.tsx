@@ -77,14 +77,17 @@ function ApiKeyDialog({
   // A field is configured when the backend returned the sentinel (key is saved but never sent to browser)
   const isConfigured = fields.every(f => savedKeys?.[f.key] === CONFIGURED_SENTINEL);
 
+  // Always reset to empty inputs — both on open AND on close. We never want
+  // a typed plaintext key to linger in React state after the dialog is gone,
+  // since component state is inspectable via React DevTools.
+  const clearLocal = () => {
+    const empty: Record<string, string> = {};
+    fields.forEach(f => { empty[f.key] = ''; });
+    setLocalValues(empty);
+  };
+
   const handleOpen = (val: boolean) => {
-    if (val) {
-      // Always start with empty inputs — user must re-enter to change a key.
-      // The placeholder communicates that a key is already saved.
-      const initial: Record<string, string> = {};
-      fields.forEach(f => { initial[f.key] = ''; });
-      setLocalValues(initial);
-    }
+    clearLocal();
     setOpen(val);
   };
 
@@ -99,6 +102,7 @@ function ApiKeyDialog({
         : entered;
     });
     onSave(vals);
+    clearLocal();
     setOpen(false);
   };
 
@@ -144,6 +148,14 @@ function ApiKeyDialog({
                   value={localValues[f.key] || ''}
                   placeholder={isSaved ? '••••••••  (enter new value to update)' : f.placeholder}
                   onChange={(e) => setLocalValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  // Treat as a secret, not a credential: don't let browsers offer to
+                  // save it, don't ship the typed text to remote spell-check services,
+                  // and opt out of common password-manager autofill heuristics.
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  data-form-type="other"
                 />
               </div>
             );
